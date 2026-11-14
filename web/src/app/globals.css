@@ -44,6 +44,12 @@
   color-scheme: dark;
 }
 
+/* /demo step progress (used from an inline style, so it lives outside @theme) */
+@keyframes demo-fill {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
 html {
   background: var(--color-void);
 }

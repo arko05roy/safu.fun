@@ -33,6 +33,7 @@ export function SmoothScroll() {
 }
 
 const LINKS = [
+  { href: "/demo", label: "Demo" },
   { href: "/buy", label: "Buy cover" },
   { href: "/underwrite", label: "Underwrite" },
   { href: "/launch", label: "UNO Reverse" },

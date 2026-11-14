@@ -43,7 +43,18 @@ async function cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Pr
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.value as T;
   if (hit?.inflight) return hit.inflight as Promise<T>;
-  const inflight = load().then(
+  const attempt = async (): Promise<T> => {
+    // the free NEAR RPC answers 429 under bursts; back off briefly before giving up
+    for (let i = 0; ; i++) {
+      try {
+        return await load();
+      } catch (e) {
+        if (i >= 2) throw e;
+        await new Promise((r) => setTimeout(r, 400 * (i + 1) ** 2));
+      }
+    }
+  };
+  const inflight = attempt().then(
     (value) => {
       cache.set(key, { at: Date.now(), value });
       return value;

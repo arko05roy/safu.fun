@@ -105,6 +105,12 @@ export function Hero() {
               </button>
             </div>
           </motion.form>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-5">
+            <Link href="/demo" className="group inline-flex items-center gap-2 text-[15px] text-ice transition-colors hover:text-bone">
+              Watch a real rug get paid out in 90 seconds
+              <span className="transition-transform group-hover:translate-x-0.5">→</span>
+            </Link>
+          </motion.div>
         </div>
 
         <motion.div initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.9, duration: 1, ease: [0.16, 1, 0.3, 1] }} className="hidden lg:block">

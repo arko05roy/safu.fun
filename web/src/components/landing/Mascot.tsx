@@ -6,10 +6,9 @@ import { api, fmtUsd, parseEvidence, usdc } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { type Eyes, H, rects, sprite, W } from "../mascot/sprite";
 
-const P = 13; // screen px per sprite pixel
 const RUG_W = 26;
 
-function Sprite({ eyes, gx, gy }: { eyes: Eyes; gx: number; gy: number }) {
+function Sprite({ eyes, gx, gy, P }: { eyes: Eyes; gx: number; gy: number; P: number }) {
   const runs = useMemo(() => rects(sprite(eyes, gx, gy)), [eyes, gx, gy]);
   return (
     <svg width={W * P} height={H * P} viewBox={`0 0 ${W} ${H}`} shapeRendering="crispEdges" aria-hidden className="block">
@@ -21,7 +20,7 @@ function Sprite({ eyes, gx, gy }: { eyes: Eyes; gx: number; gy: number }) {
 }
 
 /** Striped red rug with white fringe. */
-function Rug() {
+function Rug({ P }: { P: number }) {
   const cells: [number, number, string][] = [];
   for (let x = 0; x < RUG_W; x++) {
     const fringe = x === 0 || x === RUG_W - 1;
@@ -54,15 +53,22 @@ function Tail({ alert }: { alert: boolean }) {
   );
 }
 
-type Phase = "idle" | "pulled" | "back";
+export type Phase = "idle" | "pulled" | "back";
 
-export function Mascot() {
+/**
+ * `auto` (default): rotates live lines and gets its rug pulled every 15s.
+ * Controlled: pass `say` and `phase` to narrate (used by /demo).
+ */
+export function Mascot({ size = 13, say: sayProp, phase: phaseProp }: { size?: number; say?: string; phase?: Phase } = {}) {
+  const P = size;
+  const controlled = sayProp !== undefined;
   const reduce = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [blink, setBlink] = useState(false);
   const [hover, setHover] = useState(false);
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [ownPhase, setPhase] = useState<Phase>("idle");
+  const phase = phaseProp ?? ownPhase;
   const [hop, setHop] = useState(0);
   const [line, setLine] = useState(0);
   const [typed, setTyped] = useState(false);
@@ -83,7 +89,7 @@ export function Mascot() {
     return l;
   }, [wall, cfg]);
 
-  const say = phase === "pulled" ? "hey! who pulled my rug?" : phase === "back" ? "nice try. uno reverse." : lines[line % lines.length];
+  const say = sayProp ?? (phase === "pulled" ? "hey! who pulled my rug?" : phase === "back" ? "nice try. uno reverse." : lines[line % lines.length]);
 
   // eyes follow the pointer, quantized to whole pixels
   useEffect(() => {
@@ -116,13 +122,13 @@ export function Mascot() {
   }, [reduce]);
 
   useEffect(() => {
-    if (phase !== "idle") return;
+    if (controlled || phase !== "idle") return;
     const t = setTimeout(() => setLine((n) => n + 1), 5600);
     return () => clearTimeout(t);
-  }, [line, phase]);
+  }, [line, phase, controlled]);
 
   const pullRug = useCallback(() => {
-    if (phase !== "idle") return;
+    if (controlled || phase !== "idle") return;
     setPhase("pulled");
     window.dispatchEvent(new CustomEvent("safu:rug", { detail: "pulled" }));
     setTimeout(() => {
@@ -133,13 +139,13 @@ export function Mascot() {
       setPhase("idle");
       setLine((n) => n + 1);
     }, 3800);
-  }, [phase]);
+  }, [phase, controlled]);
 
   useEffect(() => {
-    if (reduce || phase !== "idle") return;
+    if (controlled || reduce || phase !== "idle") return;
     const t = setTimeout(pullRug, 15000);
     return () => clearTimeout(t);
-  }, [reduce, phase, pullRug]);
+  }, [controlled, reduce, phase, pullRug]);
 
   const eyes: Eyes = phase === "pulled" ? "wide" : phase === "back" || hover ? "happy" : blink ? "blink" : "open";
   const alert = phase === "pulled";
@@ -149,7 +155,7 @@ export function Mascot() {
   };
 
   return (
-    <div ref={ref} className="relative mx-auto flex w-[340px] select-none flex-col items-center">
+    <div ref={ref} className="relative mx-auto flex select-none flex-col items-center" style={{ width: Math.max(W, RUG_W) * P + 2 }}>
       {/* dialogue box */}
       <div className="relative mb-5 h-[104px] w-full">
         <AnimatePresence mode="wait">
@@ -199,7 +205,7 @@ export function Mascot() {
         key={`${hop}-${phase === "pulled"}`}
       >
         <div className={reduce ? "" : "animate-bob"}>
-          <Sprite eyes={eyes} gx={eyes === "open" || eyes === "blink" ? gaze.x : 0} gy={eyes === "open" || eyes === "blink" ? gaze.y : 0} />
+          <Sprite P={P} eyes={eyes} gx={eyes === "open" || eyes === "blink" ? gaze.x : 0} gy={eyes === "open" || eyes === "blink" ? gaze.y : 0} />
         </div>
         <AnimatePresence>
           {alert && (
@@ -211,7 +217,7 @@ export function Mascot() {
       </motion.button>
 
       {/* the rug */}
-      <div className="relative -mt-[8px] h-[52px] w-[338px]">
+      <div className="relative" style={{ marginTop: -Math.round(P * 0.6), height: P * 4, width: RUG_W * P }}>
         <motion.button
           type="button"
           aria-label="Pull the rug"
@@ -225,7 +231,7 @@ export function Mascot() {
                 : { x: 0, opacity: 1 }
           }
         >
-          <Rug />
+          <Rug P={P} />
         </motion.button>
         <AnimatePresence>
           {phase === "back" && (
