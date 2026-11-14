@@ -3,9 +3,9 @@
 
 use crate::*;
 
-/// Layout before 1Click quote verification (v0.2: Rail B, no Rail A proof).
+/// v0.3 layout (Rail A quote proofs, before token watches).
 #[near(serializers = [borsh])]
-pub struct SafuV2 {
+pub struct SafuV3 {
     owner: AccountId,
     usdc: AccountId,
     api: AccountId,
@@ -32,20 +32,20 @@ pub struct SafuV2 {
     pending_payouts: IterableSet<u64>,
     mpc_signer: AccountId,
     evm_chains: LookupMap<String, EvmChain>,
+    oneclick_pubkey: [u8; 32],
+    max_slippage_bps: u16,
 }
 
 #[near]
 impl Safu {
-    /// v0.2 -> v0.3: adds the 1Click quote-signing key and max Rail A slippage.
+    /// v0.3 -> v0.4: adds token watches, active token list and watcher heartbeat.
+    /// Tokens covered before v0.4 have no watch; on testnet all of them were
+    /// already finalized, so the active list starts empty.
     #[private]
     #[init(ignore_state)]
-    pub fn migrate_v3(oneclick_pubkey: Option<String>) -> Self {
-        let old: SafuV2 = env::state_read().expect("no v0.2 state");
-        let oneclick_pubkey = intents::parse_pubkey(
-            oneclick_pubkey.as_deref().unwrap_or(intents::DEFAULT_ONECLICK_PUBKEY),
-        )
-        .expect("bad oneclick_pubkey");
-        emit("migrated", json!({ "to": "v0.3" }));
+    pub fn migrate_v4() -> Self {
+        let old: SafuV3 = env::state_read().expect("no v0.3 state");
+        emit("migrated", json!({ "to": "v0.4" }));
         Self {
             owner: old.owner,
             usdc: old.usdc,
@@ -73,8 +73,11 @@ impl Safu {
             pending_payouts: old.pending_payouts,
             mpc_signer: old.mpc_signer,
             evm_chains: old.evm_chains,
-            oneclick_pubkey,
-            max_slippage_bps: 300,
+            oneclick_pubkey: old.oneclick_pubkey,
+            max_slippage_bps: old.max_slippage_bps,
+            watches: LookupMap::new(b"W"),
+            active_tokens: IterableSet::new(b"A"),
+            last_heartbeat_ms: 0,
         }
     }
 }
@@ -86,7 +89,7 @@ mod tests {
     use near_sdk::testing_env;
 
     #[test]
-    fn migrates_v2_state_preserving_pool_and_payouts() {
+    fn migrates_v3_state_preserving_pool_and_payouts() {
         let mut b = VMContextBuilder::new();
         b.current_account_id("safu.test.near".parse().unwrap())
             .predecessor_account_id("safu.test.near".parse().unwrap());
@@ -106,7 +109,7 @@ mod tests {
         let mut relayers = IterableSet::new(b"r");
         relayers.insert(accounts(3));
         relayers.flush();
-        let old = SafuV2 {
+        let old = SafuV3 {
             owner: accounts(0), usdc: accounts(1), api: accounts(2),
             watchers: IterableSet::new(b"w"), relayers,
             dispute_window_ms: 60_000, waiting_period_ms: 0, deductible_bps: 2_000, max_token_exposure_bps: 1_000,
@@ -116,10 +119,12 @@ mod tests {
             next_report_id: 2, open_report: LookupMap::new(b"o"), payouts, next_payout_id: 2,
             pending_payouts: IterableSet::new(b"q"), mpc_signer: "v1.signer-prod.testnet".parse().unwrap(),
             evm_chains: LookupMap::new(b"c"),
+            oneclick_pubkey: intents::parse_pubkey(intents::DEFAULT_ONECLICK_PUBKEY).unwrap(),
+            max_slippage_bps: 250,
         };
         env::state_write(&old);
 
-        let c = Safu::migrate_v3(None);
+        let c = Safu::migrate_v4();
         let s = c.pool_stats();
         assert_eq!(s.available_usdc.0, 17_600_000);
         assert_eq!(s.total_paid_out_usdc.0, 2_400_000);
@@ -128,6 +133,7 @@ mod tests {
         let cfg = c.get_config();
         assert_eq!(cfg.relayers, vec![accounts(3)]);
         assert_eq!(cfg.oneclick_pubkey, intents::DEFAULT_ONECLICK_PUBKEY);
-        assert_eq!(cfg.max_slippage_bps, 300);
+        assert_eq!(cfg.max_slippage_bps, 250);
+        assert!(c.list_watched(None, None).is_empty());
     }
 }

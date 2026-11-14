@@ -186,3 +186,39 @@ pub struct PoolStats {
     pub reports: u64,
     pub payouts: u64,
 }
+
+/// One watched wallet and its token balance when cover was first written.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug)]
+pub struct Holder {
+    pub address: String,
+    /// Token balance (base units) at `snapshot_block`.
+    pub baseline: U128,
+}
+
+/// What the watcher monitors for a covered token. Written once by the API when
+/// the first policy on a token is sold, and immutable while cover is live, so
+/// rug rules are evaluated against baselines that cannot be moved later.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug)]
+pub struct TokenWatch {
+    pub token_key: String,
+    pub token_chain: String,
+    pub token_addr: String,
+    /// R1: the deployer wallet.
+    pub deployer: Holder,
+    /// R2: top non-pool holders at snapshot time (max 10).
+    pub insiders: Vec<Holder>,
+    /// Block / height on the token's chain the baselines were read at.
+    pub snapshot_block: u64,
+    pub registered_at_ms: u64,
+}
+
+/// `list_watched` row: watch data plus live cover state.
+#[near(serializers = [json])]
+pub struct WatchedToken {
+    pub watch: TokenWatch,
+    pub active_policies: u32,
+    pub exposure_usdc: U128,
+    pub open_report_id: Option<u64>,
+}

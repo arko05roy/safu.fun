@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["contracts/safu"]
+members = ["contracts/safu", "contracts/demo-token"]
 
 [profile.release]
 codegen-units = 1

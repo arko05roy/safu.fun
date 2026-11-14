@@ -44,6 +44,20 @@
       "nonce": 1,
       "signed_evm_tx_hash": "0x73d9ef9692947c6d1861646ca462e800f0d7bb15416f81cf4cc415a470d67ecf",
       "broadcast": "blocked: pool address has 0 Base Sepolia ETH for gas"
+    },
+    {
+      "date": "2026-11-14",
+      "kind": "automated: real NEP-141 RUGME, dev dumped 500M/850M; watcher detected R1, reported with tx evidence, finalized; relayer MPC-signed payout",
+      "report_id": 2,
+      "dump_txs": [
+        "HuwJg32y34tsanp42cgx1FYV5BmDuJvj4zj7Q76PV46j",
+        "9t1tCLKBWF4Z7diDTm8DA7uhrh8n6TGDaTueuUgivWaP"
+      ],
+      "payout_id": 2,
+      "payout_usdc": "1200000",
+      "nonce": 2,
+      "signed_evm_tx_hash": "0x381fba856f64a64b950e38232d1ff2f7232c53e197320e3c7af972412cb1a817",
+      "broadcast": "blocked: pool address has 0 Base Sepolia ETH for gas"
     }
   ],
   "upgrades": [
@@ -53,6 +67,24 @@
       "init": "migrate_v3",
       "tx": "2SSJvEdbme4EWyWYQP4Tdc1y4CXLdTGX8Zp72oBY3mEK",
       "change": "Rail A requires 1Click-signed quote; state preserved (pool + payouts identical before/after)"
+    },
+    {
+      "date": "2026-11-14",
+      "to": "v0.4",
+      "init": "migrate_v4",
+      "tx": "CDq5e6CaiGKz9kHzS92E2NxaZRfYjrhmntSscctCnmhz",
+      "change": "token watches, active token list, watcher heartbeat; state preserved"
     }
-  ]
+  ],
+  "demo_token": {
+    "chain": "near",
+    "token": "rugme.safudemo-81cf1a.testnet",
+    "symbol": "RUGME",
+    "deployer": "safudemo-81cf1a.testnet",
+    "insiders": [
+      "insider1.safudemo-81cf1a.testnet",
+      "insider2.safudemo-81cf1a.testnet"
+    ],
+    "sink": "dex.safudemo-81cf1a.testnet"
+  }
 }

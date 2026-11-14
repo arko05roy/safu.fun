@@ -103,6 +103,13 @@ pub struct Safu {
     oneclick_pubkey: [u8; 32],
     /// Max slippage a Rail A quote may carry.
     max_slippage_bps: u16,
+
+    /// token_key -> what the watcher monitors (deployer + insiders + baselines).
+    watches: LookupMap<String, TokenWatch>,
+    /// token_keys with live cover — the watcher's work list.
+    active_tokens: IterableSet<String>,
+    /// Last watcher liveness ping (ms).
+    last_heartbeat_ms: u64,
 }
 
 #[near]
@@ -150,6 +157,9 @@ impl Safu {
             evm_chains: LookupMap::new(b"c"),
             oneclick_pubkey,
             max_slippage_bps: 300,
+            watches: LookupMap::new(b"W"),
+            active_tokens: IterableSet::new(b"A"),
+            last_heartbeat_ms: 0,
         }
     }
 
@@ -251,6 +261,46 @@ impl Safu {
 
     // ───────────────────────── policies ─────────────────────────
 
+    /// API records what to watch for a token before selling cover on it.
+    /// Immutable while the token has live policies or an open report, so the
+    /// baselines rug rules are judged against can't be moved after the fact.
+    pub fn register_token_watch(
+        &mut self,
+        token_chain: String,
+        token_addr: String,
+        deployer: Holder,
+        insiders: Vec<Holder>,
+        snapshot_block: u64,
+    ) {
+        require!(env::predecessor_account_id() == self.api, "api only");
+        let key = token_key(&token_chain, &token_addr);
+        require!(!self.rugged.contains_key(&key), "token already rugged");
+        require!(!self.open_report.contains_key(&key), "token has an open rug report");
+        require!(
+            !self.active_tokens.contains(&key),
+            "watch is locked while cover is live"
+        );
+        require!(!deployer.address.is_empty(), "missing deployer");
+        require!(insiders.len() <= 10, "max 10 insiders");
+        let watch = TokenWatch {
+            token_key: key.clone(),
+            token_chain,
+            token_addr,
+            deployer,
+            insiders,
+            snapshot_block,
+            registered_at_ms: env::block_timestamp_ms(),
+        };
+        emit("token_watch_registered", json!(watch));
+        self.watches.insert(key, watch);
+    }
+
+    /// Watcher liveness ping (shown as "watcher heartbeat" in the UI).
+    pub fn heartbeat(&mut self) {
+        require!(self.watchers.contains(&env::predecessor_account_id()), "watcher only");
+        self.last_heartbeat_ms = env::block_timestamp_ms();
+    }
+
     /// Called by the safu API after a protected buy's 1Click swap is created.
     #[allow(clippy::too_many_arguments)]
     pub fn register_policy(
@@ -274,6 +324,7 @@ impl Safu {
             !self.open_report.contains_key(&key),
             "token has an open rug report"
         );
+        require!(self.watches.contains_key(&key), "no token watch registered");
         require!(expires_at_ms > now, "expiry in the past");
         require!(cover_usdc.0 > 0, "zero cover");
         require!((100..=700).contains(&premium_bps), "premium must be 100..=700 bps");
@@ -296,6 +347,7 @@ impl Safu {
         self.next_policy_id += 1;
         ids.push(id);
         self.token_exposure.insert(key.clone(), exposure + cover_usdc.0);
+        self.active_tokens.insert(key.clone());
 
         let policy = Policy {
             id,
@@ -338,6 +390,9 @@ impl Safu {
             } else {
                 keep.push(id);
             }
+        }
+        if keep.is_empty() {
+            self.active_tokens.remove(&key);
         }
         self.token_policies.insert(key.clone(), keep);
         let exp = self.token_exposure.get(&key).copied().unwrap_or(0);
@@ -492,6 +547,7 @@ impl Safu {
         self.pool_reserved += total;
         self.open_report.remove(&key);
         self.rugged.insert(key.clone(), report_id);
+        self.active_tokens.remove(&key);
 
         let r = self.reports.get_mut(&report_id).expect("report");
         r.status = ReportStatus::Finalized;
@@ -872,7 +928,30 @@ impl Safu {
             "exposure_usdc": U128(self.token_exposure.get(&key).copied().unwrap_or(0)),
             "open_report_id": self.open_report.get(&key),
             "rugged_report_id": self.rugged.get(&key),
+            "watch": self.watches.get(&key),
         })
+    }
+
+    /// Watcher work list: tokens with live cover and what to monitor on each.
+    pub fn list_watched(&self, from_index: Option<u32>, limit: Option<u32>) -> Vec<WatchedToken> {
+        self.active_tokens
+            .iter()
+            .skip(from_index.unwrap_or(0) as usize)
+            .take(limit.unwrap_or(50) as usize)
+            .filter_map(|k| {
+                let watch = self.watches.get(k)?.clone();
+                Some(WatchedToken {
+                    watch,
+                    active_policies: self.token_policies.get(k).map(|v| v.len() as u32).unwrap_or(0),
+                    exposure_usdc: U128(self.token_exposure.get(k).copied().unwrap_or(0)),
+                    open_report_id: self.open_report.get(k).copied(),
+                })
+            })
+            .collect()
+    }
+
+    pub fn last_heartbeat_ms(&self) -> u64 {
+        self.last_heartbeat_ms
     }
 
     pub fn list_pending_payouts(&self, from_index: Option<u32>, limit: Option<u32>) -> Vec<Payout> {

@@ -44,8 +44,21 @@ fn setup(pool: u128) -> Safu {
     c
 }
 
+fn watch(c: &mut Safu, chain: &str, addr: &str) {
+    if c.get_token(chain.into(), addr.into())["watch"].is_null() {
+        c.register_token_watch(
+            chain.into(),
+            addr.into(),
+            Holder { address: "0x00000000000000000000000000000000000000d1".into(), baseline: U128(1_000) },
+            vec![],
+            1,
+        );
+    }
+}
+
 fn register(c: &mut Safu, cover: u128, now_ms: u64) -> u64 {
     ctx(api(), now_ms);
+    watch(c, "base-sepolia", "0xABCdef0000000000000000000000000000000001");
     c.register_policy(
         "base-sepolia".into(),
         "0xABCdef0000000000000000000000000000000001".into(),
@@ -208,6 +221,7 @@ fn pro_rata_when_pool_short() {
     c.set_params(None, None, None, Some(10_000)); // 100% per-token cap for this test
     register(&mut c, 1_000 * USDC, 2_000); // token A
     ctx(api(), 2_000);
+    watch(&mut c, "sol-devnet", "TokenB111");
     c.register_policy(
         "sol-devnet".into(), "TokenB111".into(), "base".into(), "nep141:base.omft.near".into(),
         "0x0000000000000000000000000000000000000b0b".into(), U128(1_000 * USDC), 700,
@@ -274,6 +288,7 @@ fn railb_setup() -> (Safu, u64) {
     );
     c.add_chain_float("base-sepolia".into(), U128(100 * USDC));
     ctx(api(), 2_000);
+    watch(&mut c, "base-sepolia", "0xABCdef0000000000000000000000000000000001");
     c.register_policy(
         "base-sepolia".into(), "0xABCdef0000000000000000000000000000000001".into(),
         "base-sepolia".into(), "nep141:base.omft.near".into(),
@@ -426,6 +441,7 @@ fn rail_a_setup(recipient: &str) -> (Safu, u64) {
     ctx_at(ZERO_ACCOUNT, usdc, QUOTE_NOW_MS);
     let _ = c.ft_on_transfer(owner(), U128(100 * USDC), "fund".into());
     ctx_at(ZERO_ACCOUNT, api(), QUOTE_NOW_MS);
+    watch(&mut c, "base", "0x00000000000000000000000000000000000e2e03");
     c.register_policy(
         "base".into(), "0x00000000000000000000000000000000000e2e03".into(),
         "base".into(), "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near".into(),
@@ -501,4 +517,62 @@ fn rail_a_key_rotation_invalidates_old_key() {
     let (q, sig) = quote();
     ctx_at(ZERO_ACCOUNT, relayer(), QUOTE_NOW_MS + 60_000);
     let _ = c.request_payout_intents(pid, q, sig);
+}
+
+// ───────── token watches ─────────
+
+#[test]
+#[should_panic(expected = "no token watch registered")]
+fn policy_requires_watch() {
+    let mut c = setup(1_000 * USDC);
+    ctx(api(), 2_000);
+    c.register_policy(
+        "base-sepolia".into(), "0x0000000000000000000000000000000000000077".into(), "sol".into(),
+        "nep141:sol.omft.near".into(), "r".into(), U128(USDC), 500, "00".into(), "ref".into(), 10_000_000,
+    );
+}
+
+#[test]
+fn watch_list_tracks_live_cover() {
+    let mut c = setup(1_000 * USDC);
+    register(&mut c, 10 * USDC, 2_000);
+    let w = c.list_watched(None, None);
+    assert_eq!(w.len(), 1);
+    assert_eq!(w[0].active_policies, 1);
+    assert_eq!(w[0].exposure_usdc.0, 10 * USDC);
+    assert_eq!(w[0].watch.token_key, "base-sepolia:0xabcdef0000000000000000000000000000000001");
+    let rid = report(&mut c, 3_000);
+    assert_eq!(c.list_watched(None, None)[0].open_report_id, Some(rid));
+    ctx(accounts(4), 70_000);
+    c.finalize_rug(rid);
+    assert!(c.list_watched(None, None).is_empty());
+}
+
+#[test]
+#[should_panic(expected = "watch is locked while cover is live")]
+fn watch_is_immutable_while_covered() {
+    let mut c = setup(1_000 * USDC);
+    register(&mut c, 10 * USDC, 2_000);
+    ctx(api(), 2_500);
+    c.register_token_watch(
+        "base-sepolia".into(), "0xABCdef0000000000000000000000000000000001".into(),
+        Holder { address: "0xother".into(), baseline: U128(1) }, vec![], 2,
+    );
+}
+
+#[test]
+fn prune_removes_token_from_watch_list() {
+    let mut c = setup(1_000 * USDC);
+    register(&mut c, 10 * USDC, 2_000); // expires 7 days later
+    ctx(accounts(4), 2_000 + 8 * 24 * 3600 * 1000);
+    assert_eq!(c.prune_expired("base-sepolia".into(), "0xABCdef0000000000000000000000000000000001".into()), 1);
+    assert!(c.list_watched(None, None).is_empty());
+}
+
+#[test]
+#[should_panic(expected = "watcher only")]
+fn heartbeat_is_watcher_only() {
+    let mut c = setup(0);
+    ctx(accounts(4), 2_000);
+    c.heartbeat();
 }

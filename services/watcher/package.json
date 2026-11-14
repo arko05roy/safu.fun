@@ -1,0 +1,21 @@
+{
+  "name": "@safu/watcher",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "once": "tsx src/index.ts --once",
+    "test": "tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "near-api-js": "7.5.3",
+    "viem": "2.57.19"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
