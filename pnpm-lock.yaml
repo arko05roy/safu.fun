@@ -27,86 +27,11 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  services/api:
-    dependencies:
-      '@hono/node-server':
-        specifier: ^1.19.19
-        version: 1.19.19(hono@4.13.18)
-      '@scure/base':
-        specifier: 1.1.9
-        version: 1.1.9
-      dotenv:
-        specifier: ^18.0.10
-        version: 18.0.10
-      hono:
-        specifier: ^4.13.18
-        version: 4.13.18
-      near-api-js:
-        specifier: 7.5.3
-        version: 7.5.3
-      viem:
-        specifier: 2.57.19
-        version: 2.57.19(typescript@5.9.3)(zod@4.6.7)
-    devDependencies:
-      '@types/node':
-        specifier: ^26.6.6
-        version: 26.6.6
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  services/relayer:
+  web:
     dependencies:
       '@defuse-protocol/one-click-sdk-typescript':
         specifier: 0.1.26
         version: 0.1.26
-      dotenv:
-        specifier: ^18.0.10
-        version: 18.0.10
-      near-api-js:
-        specifier: 7.5.3
-        version: 7.5.3
-      viem:
-        specifier: 2.57.19
-        version: 2.57.19(typescript@5.9.3)(zod@4.6.7)
-    devDependencies:
-      '@types/node':
-        specifier: ^26.6.6
-        version: 26.6.6
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  services/watcher:
-    dependencies:
-      dotenv:
-        specifier: ^18.0.10
-        version: 18.0.10
-      near-api-js:
-        specifier: 7.5.3
-        version: 7.5.3
-      viem:
-        specifier: 2.57.19
-        version: 2.57.19(typescript@5.9.3)(zod@4.6.7)
-    devDependencies:
-      '@types/node':
-        specifier: ^26.6.6
-        version: 26.6.6
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  web:
-    dependencies:
       '@near-wallet-selector/core':
         specifier: ^10.1.4
         version: 10.1.4(@near-js/keystores@2.2.5(@near-js/crypto@2.5.1(@near-js/types@2.5.1)(@near-js/utils@2.5.1(@near-js/types@2.5.1)))(@near-js/types@2.5.1))(@near-js/utils@2.5.1(@near-js/types@2.5.1))
@@ -122,12 +47,21 @@ importers:
       '@react-three/fiber':
         specifier: ^9.8.2
         version: 9.8.2(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(three@0.187.0)
+      '@scure/base':
+        specifier: 1.1.9
+        version: 1.1.9
+      hono:
+        specifier: ^4.13.18
+        version: 4.13.18
       lenis:
         specifier: ^1.3.27
         version: 1.3.27(react@19.3.0)
       motion:
         specifier: ^14.14.0
         version: 14.14.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      near-api-js:
+        specifier: 7.5.3
+        version: 7.5.3
       next:
         specifier: 16.4.6
         version: 16.4.6(@babel/core@7.29.13)(@types/node@20.19.43)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -140,6 +74,9 @@ importers:
       three:
         specifier: ^0.187.0
         version: 0.187.0
+      viem:
+        specifier: 2.57.19
+        version: 2.57.19(typescript@5.9.3)(zod@4.6.7)
     devDependencies:
       '@tailwindcss/turbopack':
         specifier: 4.3.3
@@ -461,12 +398,6 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-
-  '@hono/node-server@1.19.19':
-    resolution: {integrity: sha512-Fy9R7PACOzHU9LDpfnuzVyuVYevKQRcEG2mZhmfc+DRdmayEd3RVfa2XOt2IgGcPNgA77Yk63KBszepcMFK5Ng==}
-    engines: {node: '>=18.14.1'}
-    peerDependencies:
-      hono: ^4
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -3213,7 +3144,7 @@ snapshots:
   '@defuse-protocol/one-click-sdk-typescript@0.1.26':
     dependencies:
       '@noble/hashes': 1.8.0
-      '@scure/base': 2.3.0
+      '@scure/base': 1.1.9
       axios: 1.21.1
       form-data: 4.0.6
       json-stable-stringify: 1.3.0
@@ -3357,10 +3288,6 @@ snapshots:
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
-
-  '@hono/node-server@1.19.19(hono@4.13.18)':
-    dependencies:
-      hono: 4.13.18
 
   '@humanfs/core@0.19.2':
     dependencies:

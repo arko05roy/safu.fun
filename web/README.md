@@ -1,12 +1,12 @@
 # @safu/web
 
-The safu.fun frontend: Next.js (App Router, TypeScript, Tailwind v4), three.js via React Three Fiber, Motion and Lenis. It reads everything from `services/api` and the NEAR RPC. Users sign with a NEAR wallet through wallet-selector (MyNearWallet).
+safu.fun, frontend and backend in one Next.js app (App Router, TypeScript, Tailwind v4, Motion, Lenis, React Three Fiber). The backend (API, rug watcher, relayer) lives in [`src/server`](src/server/README.md): the API is served at `/api/*` and the watcher and relayer run as background jobs in the same server. Users sign with a NEAR wallet through wallet-selector (MyNearWallet).
 
 ```bash
 pnpm install
-pnpm --filter @safu/api start      # http://localhost:8787 (see services/api)
-cp web/.env.example web/.env.local
-pnpm --filter @safu/web dev        # http://localhost:3000
+cp web/.env.example web/.env.local   # accounts, quote signing key, optional API keys
+pnpm --filter @safu/web dev          # site + /api + watcher + relayer on http://localhost:3000
+pnpm --filter @safu/web test         # risk model + rug rule unit tests
 ```
 
 | Route | What it does |
@@ -22,6 +22,13 @@ Brand assets from `brand-assets/` are served from `public/brand/` (`pixel-flames
 
 | Env | Default |
 |---|---|
-| `NEXT_PUBLIC_SAFU_API` | `http://localhost:8787` |
+| `NEXT_PUBLIC_SAFU_API` | `/api` (same origin) |
 | `NEXT_PUBLIC_NEAR_NETWORK` | `testnet` |
 | `NEXT_PUBLIC_SAFU_CONTRACT` | `cover.safufun-d73f3d.testnet` |
+
+## Deploying
+
+- **Always-on host** (Railway, Fly, a VPS): `pnpm --filter @safu/web build && pnpm --filter @safu/web start`. Jobs run in-process. Attach a disk for `data/`.
+- **Vercel**: set `SAFU_JOBS=off` and `CRON_SECRET`, and schedule `GET /api/cron/watcher`, `/api/cron/relayer` and `/api/cron/buys`. Vercel Cron's frequency depends on your plan; the watcher needs at least one pass a minute on testnet.
+
+Backend env vars (accounts, private keys, API keys) are in [.env.example](.env.example); see [src/server/README.md](src/server/README.md).

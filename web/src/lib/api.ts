@@ -1,6 +1,6 @@
 /** Typed client for services/api. Every number from the chain arrives as a decimal string. */
 
-export const API = process.env.NEXT_PUBLIC_SAFU_API ?? "http://localhost:8787";
+export const API = process.env.NEXT_PUBLIC_SAFU_API ?? "/api";
 export const NETWORK = (process.env.NEXT_PUBLIC_NEAR_NETWORK ?? "testnet") as "testnet" | "mainnet";
 export const CONTRACT = process.env.NEXT_PUBLIC_SAFU_CONTRACT ?? "cover.safufun-d73f3d.testnet";
 
@@ -15,7 +15,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${API}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
   } catch {
-    throw new ApiError(0, "safu API unreachable, is services/api running?");
+    throw new ApiError(0, "safu API unreachable. Is the Next.js server running?");
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText, Boolean(body.retry));

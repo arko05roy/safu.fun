@@ -7,7 +7,7 @@ The PRD §8 demo, run for real on NEAR testnet. It takes about 3–4 minutes, mo
 pnpm install
 (cd contracts/demo-token && cargo near build non-reproducible-wasm)
 
-# terminal 1: api + watcher + relayer (5s polling)
+# terminal 1: Next.js app = site + API + watcher + relayer (5s polling)
 pnpm --filter @safu/demo services
 
 # terminal 2: the demo
@@ -34,7 +34,7 @@ pnpm --filter @safu/demo demo
 | env | default |
 |---|---|
 | `SAFU_CONTRACT` | `cover.safufun-d73f3d.testnet` |
-| `API_URL` | `http://localhost:8787` |
+| `API_URL` | `http://localhost:3000/api` |
 | `DEMO_BUYER` | `buyer.safudemo-81cf1a.testnet`. Must hold testnet USDC, and its key must be in `~/.near-credentials/testnet/`. |
 | `DEMO_RECIPIENT_ADDRESS` | EVM address for the Base Sepolia leg. Leave unset to skip that leg. |
 | `DEMO_DEV` | reuse an existing dev account instead of creating one from the faucet |

@@ -7,20 +7,27 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "icon": "tsx scripts/gen-icon.ts"
+    "icon": "tsx scripts/gen-icon.ts",
+    "test": "tsx --test src/server/api/risk.test.ts src/server/watcher/rules.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
     "@near-wallet-selector/core": "^10.1.4",
     "@near-wallet-selector/modal-ui": "^10.1.4",
     "@near-wallet-selector/my-near-wallet": "^10.1.4",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
+    "@scure/base": "1.1.9",
+    "hono": "^4.13.18",
     "lenis": "^1.3.27",
     "motion": "^14.14.0",
+    "near-api-js": "7.5.3",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "viem": "2.57.19"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

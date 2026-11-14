@@ -12,13 +12,13 @@ Built on NEAR: Intents (1Click) for any-chain swaps and payouts, Chain Signature
 | Chain Signatures payouts (Rail B, EVM) | `contracts/safu` | ✅ contract-built tx |
 | $SAFU token (NEP-141 + burn) | `contracts/safu-token` | ✅ |
 | $SAFU staking: premium share + rug burns | `contracts/safu` | ✅ |
-| Relayer (Rail A + Rail B) | `services/relayer` | ✅ |
-| Rug watcher (R1/R2, NEAR + EVM, UNO snapshots/refunds) | `services/watcher` | ✅ |
+| Relayer (Rail A + Rail B) | `web/src/server/relayer` | ✅ background job in the Next.js server |
+| Rug watcher (R1/R2, NEAR + EVM, UNO snapshots/refunds) | `web/src/server/watcher` | ✅ background job in the Next.js server |
 | UNO REVERSE launches (NEAR) | `contracts/safu` | ✅ |
 | Demo NEP-141 memecoin | `contracts/demo-token` | ✅ |
 | End-to-end demo (PRD §8) | `scripts/demo` | ✅ ~3 min on testnet |
 | NEAR-direct payouts | `contracts/safu` | ✅ |
-| API (rug odds, watch snapshots, signed cover quotes, Intents buys) | `services/api` | ✅ |
+| API (rug odds, watch snapshots, signed cover quotes, Intents buys) | `web/src/server/api` | ✅ Next.js route handlers at `/api/*` |
 | Frontend (Next.js) | `web/` | ✅ buy, cover status, underwrite, UNO launches, Wall of Rugs |
 
 ## Run the demo
@@ -26,7 +26,7 @@ Built on NEAR: Intents (1Click) for any-chain swaps and payouts, Chain Signature
 ```bash
 pnpm install
 (cd contracts/demo-token && cargo near build non-reproducible-wasm)
-pnpm --filter @safu/demo services   # terminal 1
+pnpm --filter @safu/demo services   # terminal 1: the Next.js app (site + API + jobs)
 pnpm --filter @safu/demo demo       # terminal 2: cover → rug → payout
 pnpm --filter @safu/demo uno        # terminal 2: UNO REVERSE launch → rug → reverse
 ```
@@ -35,10 +35,12 @@ See [scripts/demo/README.md](scripts/demo/README.md).
 
 ## Run the app
 
+Frontend and backend are one Next.js app in `web/`. It serves the site, the API at `/api/*`, and runs the watcher and relayer as background jobs.
+
 ```bash
 pnpm install
-pnpm --filter @safu/api start      # terminal 1: http://localhost:8787
-pnpm --filter @safu/web dev        # terminal 2: http://localhost:3000
+cp web/.env.example web/.env.local   # fill in accounts + quote signing key
+pnpm --filter @safu/web dev          # http://localhost:3000
 ```
 
 See [web/README.md](web/README.md).
