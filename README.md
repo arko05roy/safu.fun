@@ -82,7 +82,7 @@ Not a mockup. This is one run on NEAR testnet, from purchase to payout, with no 
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
   B["Buyer, any chain"] -- "premium (1-7%)<br/>via NEAR Intents" --> C[("safu cover contract<br/>on NEAR")]
   S["$SAFU stakers"] -- "underwrite: earn 50% of premiums,<br/>burn on rugs" --> C
   W["Rug watcher"] -- "report_rug + dump tx evidence" --> C
