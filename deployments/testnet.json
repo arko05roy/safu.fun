@@ -20,5 +20,21 @@
       "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
       "rpc": "https://sepolia.base.org"
     }
-  }
+  },
+  "e2e_runs": [
+    {
+      "date": "2026-11-14",
+      "kind": "manual contract integration test (token address is a marker, evidence is not a real dump)",
+      "pool_funded_usdc": "20000000",
+      "base_sepolia_float_usdc": "20000000",
+      "policy_id": 0,
+      "report_id": 0,
+      "payout_id": 0,
+      "payout_usdc": "1600000",
+      "mpc_sign_near_tx": "4jJXcYXGZQvu3nb6LMkpMUQv1BhVkHuRokVmz6NkdVQz",
+      "signed_evm_tx_hash": "0xd926072b68a694ea6d0b875e99d746a461b6330ae3a2d2d67d5057e2c0b3d6cd",
+      "recipient": "0x7A69e5aBa08eAC068A45ddf9E1818c7d89518d0d",
+      "broadcast": "blocked: pool address has 0 Base Sepolia ETH for gas"
+    }
+  ]
 }
