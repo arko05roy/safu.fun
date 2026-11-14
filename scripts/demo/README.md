@@ -62,3 +62,23 @@ The keys of new accounts are saved in near-cli's keychain (`~/.near-credentials/
 - Public NEAR RPCs rate-limit, so every service and the demo rotate across several endpoints (`NEAR_RPCS`; the default is FastNEAR + dRPC).
 - The free NearBlocks tier rate-limits too. The API caches its responses and returns a retryable `503` while a brand-new coin isn't fully indexed yet. It checks the indexer's dev balance against chain state, so a stale holder list can't produce a wrong insider snapshot.
 - The testnet faucet rate-limits new accounts. Set `DEMO_DEV` to reuse an earlier dev wallet; each run uses fresh `coin-<tag>` subaccounts.
+
+## UNO REVERSE demo (`pnpm --filter @safu/demo uno`)
+
+A real run (testnet, 2026-11-14, 165s, unattended):
+
+```
+[ 15s] UNO REVERSE launch #0 — custody: cover.safufun-d73f3d.testnet
+[ 20s] dev allocation 500M locked in the contract — unlocks 10% every 20s
+[ 49s] pool seeded with 400M $TRUSTME + 1 USDC — owned by the contract
+[ 52s] rug odds 42% — but UNO REVERSE launch #0 → cover premium 1.00%
+[ 61s] buyer covered 0.6963 USDC for 0.0070 USDC premium (policy #14)
+[ 68s] buyer bought 133.33M $TRUSTME for 0.5 USDC · fan bought 44.44M for 0.3 USDC
+[ 87s] dev dumped 200M $TRUSTME into the pool for 0.8526 USDC
+[ 90s] RUGGED — rule R1 · report #8
+[151s] 🔄 UNO REVERSE'd — pool frozen, 0.9474 USDC → refund pot
+[151s] 🔥 822.22M $TRUSTME burned — supply 1,000M → 177.78M
+[165s] refund → buyer 0.7105 USDC · fan 0.2368 USDC · + cover payout 0.5570 USDC
+```
+
+**Known limit:** the reverse claws back what's still in the pool. A dev who sells their *unlocked* tranches before the watcher fires gets that USDC out first; in this run it was 0.85 USDC. The tranche schedule is what bounds this.

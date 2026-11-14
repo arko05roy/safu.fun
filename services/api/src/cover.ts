@@ -25,11 +25,25 @@ export interface TokenView {
   profile: TokenProfile;
   risk: Risk;
   onchain: OnchainToken;
+  /** UNO REVERSE launch, if the dev opted in. */
+  uno: { id: number; status: unknown } | null;
 }
 
+/** PRD §2: UNO REVERSE coins get ~1% cover — the dev can't pull liquidity or dump the locked bag. */
+export const UNO_PREMIUM_BPS = 100;
+
 export async function tokenView(chain: string, addr: string): Promise<TokenView> {
-  const [profile, onchain] = await Promise.all([tokenProfile(chain, addr), safu.getToken(chain, addr)]);
-  return { profile, risk: assessRisk(profile), onchain };
+  const [profile, onchain, uno] = await Promise.all([
+    tokenProfile(chain, addr),
+    safu.getToken(chain, addr),
+    chain === "near" ? safu.unoByToken(addr) : Promise.resolve(null),
+  ]);
+  const risk = assessRisk(profile);
+  if (uno && uno.status === "Active") {
+    risk.factors.push({ name: "uno_reverse", value: 0, weight: 0, detail: `UNO REVERSE launch #${uno.id}: liquidity + dev allocation held by the safu contract` });
+    risk.premiumBps = UNO_PREMIUM_BPS;
+  }
+  return { profile, risk, onchain, uno };
 }
 
 /**

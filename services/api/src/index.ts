@@ -13,6 +13,8 @@
  *   GET  /wall                       Wall of Rugs (all rug reports)
  *   GET  /staking                    $SAFU pot, premium share, burns, token supply
  *   GET  /stake/:account             one underwriter's stake + claimable USDC
+ *   GET  /uno                        all UNO REVERSE launches
+ *   GET  /uno/:id                    one launch + its refund snapshot
  */
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
@@ -54,7 +56,7 @@ app.get("/token/:chain/:addr", async (c) => json(await tokenView(c.req.param("ch
 
 app.get("/odds/:chain/:addr", async (c) => {
   const v = await tokenView(c.req.param("chain"), c.req.param("addr"));
-  return json({ rug_odds_pct: v.risk.rugOddsPct, premium_bps: v.risk.premiumBps, factors: v.risk.factors });
+  return json({ rug_odds_pct: v.risk.rugOddsPct, premium_bps: v.risk.premiumBps, factors: v.risk.factors, uno: v.uno });
 });
 
 app.post("/cover/quote", async (c) => json(await coverQuote(await c.req.json())));
@@ -83,6 +85,18 @@ app.get("/staking", async () => {
 app.get("/stake/:account", async (c) => {
   const v = await safu.getStake(c.req.param("account"));
   return v ? json(v) : c.json({ error: "not a staker" }, 404);
+});
+
+app.get("/uno", async () => {
+  const n = await safu.unoCount();
+  return json(await Promise.all(Array.from({ length: n }, (_, i) => safu.unoLaunch(i))));
+});
+
+app.get("/uno/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const launch = await safu.unoLaunch(id);
+  if (!launch) return c.json({ error: "not found" }, 404);
+  return json({ launch, snapshot: await safu.unoSnapshot(id) });
 });
 
 app.get("/wall", async () => {

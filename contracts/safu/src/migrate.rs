@@ -3,9 +3,9 @@
 
 use crate::*;
 
-/// v0.5/v0.6 layout (cover-only sales, before $SAFU staking).
+/// v0.7/v0.8 layout ($SAFU staking, before UNO REVERSE launches).
 #[near(serializers = [borsh])]
-pub struct SafuV6 {
+pub struct SafuV8 {
     owner: AccountId,
     usdc: AccountId,
     api: AccountId,
@@ -39,28 +39,18 @@ pub struct SafuV6 {
     last_heartbeat_ms: u64,
     api_pubkey: Option<[u8; 32]>,
     used_quote_nonces: LookupSet<String>,
+    stk: crate::staking::StakingState,
+    stakers: LookupMap<AccountId, Staker>,
 }
 
 #[near]
 impl Safu {
-    /// v0.7 -> v0.8: same layout; reward accumulator rescaled 1e24 -> 1e36.
-    /// Staker reward debts are stored in USDC units, so only the global
-    /// accumulator changes (shares × acc / scale is preserved exactly).
+    /// v0.8 -> v0.9: adds UNO REVERSE launches.
     #[private]
     #[init(ignore_state)]
-    pub fn migrate_v8() -> Self {
-        let mut this: Safu = env::state_read().expect("no v0.7 state");
-        this.stk.acc_reward_per_share *= 1_000_000_000_000;
-        emit("migrated", json!({ "to": "v0.8" }));
-        this
-    }
-
-    /// v0.6 -> v0.7: adds $SAFU staking (token is set later with set_safu_token).
-    #[private]
-    #[init(ignore_state)]
-    pub fn migrate_v7() -> Self {
-        let old: SafuV6 = env::state_read().expect("no v0.6 state");
-        emit("migrated", json!({ "to": "v0.7" }));
+    pub fn migrate_v9() -> Self {
+        let old: SafuV8 = env::state_read().expect("no v0.8 state");
+        emit("migrated", json!({ "to": "v0.9" }));
         Self {
             owner: old.owner,
             usdc: old.usdc,
@@ -95,8 +85,12 @@ impl Safu {
             last_heartbeat_ms: old.last_heartbeat_ms,
             api_pubkey: old.api_pubkey,
             used_quote_nonces: old.used_quote_nonces,
-            stk: StakingState::new(old.dispute_window_ms * 2 + 1),
-            stakers: LookupMap::new(b"S"),
+            stk: old.stk,
+            stakers: old.stakers,
+            uno_launches: LookupMap::new(b"U"),
+            next_uno_id: 0,
+            uno_by_token: LookupMap::new(b"u"),
+            uno_snapshots: LookupMap::new(b"Z"),
         }
     }
 }
@@ -108,7 +102,7 @@ mod tests {
     use near_sdk::testing_env;
 
     #[test]
-    fn migrates_v6_state_preserving_everything() {
+    fn migrates_v8_state_preserving_everything() {
         let mut b = VMContextBuilder::new();
         b.current_account_id("safu.test.near".parse().unwrap())
             .predecessor_account_id("safu.test.near".parse().unwrap());
@@ -131,7 +125,9 @@ mod tests {
         let mut active = IterableSet::new(b"A");
         active.insert("near:rugme.x".to_string());
         active.flush();
-        let old = SafuV6 {
+        let mut stk = crate::staking::StakingState::new(120_001);
+        stk.total_staked = 77;
+        let old = SafuV8 {
             owner: accounts(0), usdc: accounts(1), api: accounts(2),
             watchers: IterableSet::new(b"w"), relayers,
             dispute_window_ms: 60_000, waiting_period_ms: 0, deductible_bps: 2_000, max_token_exposure_bps: 1_000,
@@ -148,10 +144,12 @@ mod tests {
             last_heartbeat_ms: 42,
             api_pubkey: intents::parse_pubkey(intents::DEFAULT_ONECLICK_PUBKEY),
             used_quote_nonces: LookupSet::new(b"N"),
+            stk,
+            stakers: LookupMap::new(b"S"),
         };
         env::state_write(&old);
 
-        let c = Safu::migrate_v7();
+        let c = Safu::migrate_v9();
         let s = c.pool_stats();
         assert_eq!(s.available_usdc.0, 17_600_000);
         assert_eq!(s.total_paid_out_usdc.0, 2_400_000);
@@ -163,7 +161,8 @@ mod tests {
         assert_eq!(cfg.max_slippage_bps, 250);
         assert_eq!(c.last_heartbeat_ms(), 42);
         assert_eq!(c.staking_stats().unbond_ms, 120_001);
-        assert_eq!(c.staking_stats().total_staked_safu.0, 0);
+        assert_eq!(c.staking_stats().total_staked_safu.0, 77);
+        assert_eq!(c.uno_launch_count(), 0);
         assert_eq!(c.get_config().api_pubkey.as_deref(), Some(intents::DEFAULT_ONECLICK_PUBKEY));
     }
 }

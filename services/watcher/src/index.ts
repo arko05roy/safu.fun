@@ -17,6 +17,7 @@ import { evaluate, type HolderState } from "./rules.js";
 import { NearAdapter } from "./adapters/near.js";
 import { EvmAdapter } from "./adapters/evm.js";
 import type { ChainAdapter } from "./adapters/types.js";
+import { unoTick } from "./uno.js";
 
 function log(tag: string, msg: string) {
   console.log(`${new Date().toISOString()} [${tag}] ${msg}`);
@@ -100,6 +101,7 @@ async function tick() {
       log(t.watch.token_key, `error: ${(e as Error).message}`);
     }
   }
+  await unoTick(log).catch((e) => log("uno", `error: ${(e as Error).message}`));
   return tokens.length;
 }
 

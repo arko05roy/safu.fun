@@ -105,6 +105,27 @@
       "stakers_earned_usdc": "0.0332 (50% of premiums)",
       "safu_burned": "71.8M (7.18% pool loss ratio); SAFU total supply 1B -> 928.2M",
       "claim": "owner claimed 0.0192 USDC rewards on-chain (pre-v0.8 rounding; 0.0012 USDC stayed as unallocated dust)"
+    },
+    {
+      "date": "2026-11-14",
+      "kind": "scripts/demo uno.ts \u2014 UNO REVERSE end-to-end (unattended)",
+      "launch_id": 0,
+      "coin": "uno-5051ac.rugdev-28a8de.testnet",
+      "dev": "rugdev-28a8de.testnet",
+      "report_id": 8,
+      "cover_policy": 14,
+      "cover_premium_bps": 100,
+      "dev_dump": "200M TRUSTME sold into pool for 0.8526 USDC (100M liquid + 100M unlocked tranches)",
+      "reverse": {
+        "refund_pot_usdc": "0.947369",
+        "burned": "822.22M TRUSTME (supply 1B -> 177.78M)",
+        "refunds": {
+          "buyer.safudemo-81cf1a.testnet": "0.7105",
+          "fan-5051ac.rugdev-28a8de.testnet": "0.2368 (verified on-chain)"
+        }
+      },
+      "cover_payout_usdc": "0.5570",
+      "duration_s": 165
     }
   ],
   "upgrades": [
@@ -148,6 +169,13 @@
       "to": "v0.8",
       "init": "migrate_v8",
       "change": "reward accumulator precision 1e24 -> 1e36 (live run showed ~3.6% of staker rewards lost to rounding); min stake 1 SAFU; views identical"
+    },
+    {
+      "date": "2026-11-14",
+      "to": "v0.9",
+      "init": "migrate_v9",
+      "tx": "FP8yXsGSjHQJW6QTjSm92ivxXf3ojtvabLgSHjjfDeWo",
+      "change": "UNO REVERSE launches (contract-custodied dev allocation + constant-product pool, reverse on finalized rug, on-chain holder snapshot, pro-rata refunds); state preserved. Contract topped up 1 NEAR for code storage."
     }
   ],
   "api_quote_pubkey": "ed25519:4ikNBxWheAYfb1UpGVRFxQVbikewht9xqYMDYimRz8kg",

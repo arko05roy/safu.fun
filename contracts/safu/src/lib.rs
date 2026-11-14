@@ -18,6 +18,7 @@ mod migrate;
 mod cover;
 mod staking;
 mod math;
+mod uno;
 mod types;
 
 #[cfg(test)]
@@ -26,6 +27,7 @@ mod tests;
 pub use types::*;
 pub use staking::{StakeView, Staker, StakingStats};
 use staking::StakingState;
+pub use uno::{UnoHolder, UnoLaunch, UnoStatus};
 
 use events::emit;
 use near_sdk::json_types::U128;
@@ -124,6 +126,12 @@ pub struct Safu {
     /// $SAFU staking: pot, shares, premium accumulator, burns.
     stk: StakingState,
     stakers: LookupMap<AccountId, Staker>,
+
+    /// UNO REVERSE launches: contract-custodied dev allocation + liquidity.
+    uno_launches: LookupMap<u64, UnoLaunch>,
+    next_uno_id: u64,
+    uno_by_token: LookupMap<AccountId, u64>,
+    uno_snapshots: LookupMap<u64, Vec<UnoHolder>>,
 }
 
 #[near]
@@ -178,6 +186,10 @@ impl Safu {
             used_quote_nonces: LookupSet::new(b"N"),
             stk: StakingState::new(dispute_window_ms * 2 + 1),
             stakers: LookupMap::new(b"S"),
+            uno_launches: LookupMap::new(b"U"),
+            next_uno_id: 0,
+            uno_by_token: LookupMap::new(b"u"),
+            uno_snapshots: LookupMap::new(b"Z"),
         }
     }
 
@@ -273,7 +285,17 @@ impl Safu {
             self.stake(sender_id, amount);
             return PromiseOrValue::Value(U128(0));
         }
-        require!(token == self.usdc, "only the pool USDC token is accepted");
+        if token != self.usdc {
+            require!(self.uno_by_token.contains_key(&token), "only the pool USDC token is accepted");
+            let unused = self.uno_on_coin(token, sender_id, amount, &msg);
+            return PromiseOrValue::Value(U128(unused));
+        }
+        if msg.starts_with('{') && !msg.contains("\"buy_cover\"") {
+            let v: near_sdk::serde_json::Value =
+                near_sdk::serde_json::from_str(&msg).unwrap_or_else(|_| env::panic_str("bad msg"));
+            let unused = self.uno_on_usdc(sender_id, amount, &v);
+            return PromiseOrValue::Value(U128(unused));
+        }
         if msg.starts_with('{') {
             // Cover-only purchase: premium paid in USDC with an API-signed quote.
             // Any failed check panics, and NEP-141 refunds the full transfer.
@@ -612,6 +634,10 @@ impl Safu {
         self.open_report.remove(&key);
         self.rugged.insert(key.clone(), report_id);
         self.active_tokens.remove(&key);
+        // UNO REVERSE: if the dev opted in, the liquidity rugs the dev
+        if let Some(addr) = key.strip_prefix("near:") {
+            self.uno_reverse(addr, report_id);
+        }
 
         let r = self.reports.get_mut(&report_id).expect("report");
         r.status = ReportStatus::Finalized;

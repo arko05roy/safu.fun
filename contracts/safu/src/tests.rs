@@ -920,3 +920,201 @@ fn dust_stakes_are_rejected() {
     let mut c = staking_setup(0);
     stake(&mut c, "alice.near", SAFU - 1, 2_000);
 }
+
+// ───────── UNO REVERSE ─────────
+fn coin() -> AccountId {
+    "coin.near".parse().unwrap()
+}
+fn dev() -> AccountId {
+    "dev.near".parse().unwrap()
+}
+
+fn from_coin(c: &mut Safu, sender: &str, amount: u128, msg: &str, now: u64) -> u128 {
+    ctx(coin(), now);
+    match c.ft_on_transfer(sender.parse().unwrap(), U128(amount), msg.into()) {
+        PromiseOrValue::Value(v) => v.0,
+        _ => panic!("expected value"),
+    }
+}
+fn from_usdc(c: &mut Safu, sender: &str, amount: u128, msg: &str, now: u64) {
+    ctx(usdc(), now);
+    let _ = c.ft_on_transfer(sender.parse().unwrap(), U128(amount), msg.into());
+}
+
+/// dev locks 500 coin, seeds pool with 400 coin + 100 USDC. Tranche 10% / 10s.
+fn uno_setup() -> Safu {
+    let mut c = setup(1_000 * USDC);
+    ctx(dev(), 1_000);
+    let _ = c.create_uno_launch(coin(), 1_000, 10_000);
+    from_coin(&mut c, "dev.near", 500, r#"{"uno_lock":0}"#, 1_000);
+    from_coin(&mut c, "dev.near", 400 * SAFU, r#"{"uno_seed":0}"#, 1_000);
+    from_usdc(&mut c, "dev.near", 100 * USDC, r#"{"uno_seed":0}"#, 1_000);
+    c
+}
+
+#[test]
+fn uno_launch_lock_and_seed() {
+    let c = uno_setup();
+    let l = c.get_uno_launch(0).unwrap();
+    assert_eq!(l.dev, dev());
+    assert_eq!(l.dev_alloc.0, 500);
+    assert_eq!(l.pool_token.0, 400 * SAFU);
+    assert_eq!(l.pool_usdc.0, 100 * USDC);
+    assert_eq!(c.get_uno_by_token(coin()).unwrap().id, 0);
+    // the cover pool is untouched by UNO liquidity
+    assert_eq!(c.pool_stats().available_usdc.0, 1_000 * USDC);
+}
+
+#[test]
+fn uno_buy_and_sell_are_constant_product() {
+    let mut c = uno_setup();
+    let out = c.uno_quote(0, Some(U128(10 * USDC)), None).0;
+    assert_eq!(out, 400 * SAFU * 10 / 110);
+    from_usdc(&mut c, "bob.near", 10 * USDC, r#"{"uno_buy":{"id":0,"min_out":"0"}}"#, 2_000);
+    let l = c.get_uno_launch(0).unwrap();
+    assert_eq!(l.pool_usdc.0, 110 * USDC);
+    assert_eq!(l.pool_token.0, 400 * SAFU - out);
+    let back = c.uno_quote(0, None, Some(U128(out))).0;
+    from_coin(&mut c, "bob.near", out, r#"{"uno_sell":{"id":0,"min_out":"0"}}"#, 3_000);
+    let l = c.get_uno_launch(0).unwrap();
+    assert_eq!(l.pool_usdc.0, 110 * USDC - back);
+    assert!(back <= 10 * USDC && back >= 10 * USDC - 1); // round trip, no fee
+}
+
+#[test]
+#[should_panic(expected = "slippage: output below min_out")]
+fn uno_buy_respects_min_out() {
+    let mut c = uno_setup();
+    from_usdc(&mut c, "bob.near", 10 * USDC, r#"{"uno_buy":{"id":0,"min_out":"999000000000000000000"}}"#, 2_000);
+}
+
+#[test]
+#[should_panic(expected = "only the dev seeds liquidity")]
+fn only_dev_seeds() {
+    let mut c = uno_setup();
+    from_coin(&mut c, "bob.near", 10, r#"{"uno_seed":0}"#, 2_000);
+}
+
+#[test]
+#[should_panic(expected = "token already has an UNO launch")]
+fn one_launch_per_token() {
+    let mut c = uno_setup();
+    ctx(dev(), 2_000);
+    let _ = c.create_uno_launch(coin(), 1_000, 10_000);
+}
+
+#[test]
+fn dev_allocation_vests_in_tranches() {
+    let mut c = uno_setup();
+    ctx(dev(), 1_000 + 25_000); // 2 periods -> 20%
+    assert_eq!(c.uno_claimable(0).0, 100);
+    let _ = c.claim_unlock(0);
+    assert_eq!(c.get_uno_launch(0).unwrap().dev_claimed.0, 100);
+    ctx(dev(), 1_000 + 1_000_000); // capped at 100%
+    assert_eq!(c.uno_claimable(0).0, 400);
+}
+
+#[test]
+#[should_panic(expected = "nothing unlocked yet")]
+fn no_instant_dump() {
+    let mut c = uno_setup();
+    ctx(dev(), 1_500);
+    let _ = c.claim_unlock(0);
+}
+
+/// Cover a UNO coin, rug it, finalize -> the launch is reversed.
+fn uno_rugged() -> Safu {
+    let mut c = uno_setup();
+    ctx(dev(), 1_000 + 15_000);
+    let _ = c.claim_unlock(0); // dev took 10% = 50 before rugging
+    from_usdc(&mut c, "bob.near", 30 * USDC, r#"{"uno_buy":{"id":0,"min_out":"0"}}"#, 16_000);
+    from_usdc(&mut c, "carol.near", 10 * USDC, r#"{"uno_buy":{"id":0,"min_out":"0"}}"#, 16_500);
+    ctx(api(), 17_000);
+    c.register_token_watch(
+        "near".into(), "coin.near".into(),
+        Holder { address: "dev.near".into(), baseline: U128(50) },
+        vec![Holder { address: "insider.near".into(), baseline: U128(1) }],
+        1,
+    );
+    c.register_policy(
+        "near".into(), "coin.near".into(), "near".into(), "nep141:usdc.test.near".into(), "bob.near".into(),
+        U128(10 * USDC), 100, "00".into(), "ref".into(), 10_000_000,
+    );
+    ctx(watcher(), 18_000);
+    let rid = c.report_rug("near".into(), "coin.near".into(), "R1".into(), vec!["x".into()]);
+    ctx(accounts(4), 18_000 + 60_000);
+    c.finalize_rug(rid);
+    c
+}
+
+#[test]
+fn rug_reverses_the_launch() {
+    let c = uno_rugged();
+    let l = c.get_uno_launch(0).unwrap();
+    assert!(matches!(l.status, UnoStatus::Reversed { .. }));
+    assert_eq!(l.refund_pot_usdc.0, 140 * USDC); // 100 seed + 30 + 10 buys
+    assert_eq!(l.pool_usdc.0, 0);
+    assert_eq!(l.pool_token.0, 0);
+    // replay the two buys exactly as the pool executed them (each rounds down)
+    let t1 = 400 * SAFU - 400 * SAFU * 30 / 130;
+    let t2 = t1 - t1 * (10 * USDC) / (140 * USDC);
+    assert_eq!(l.burned_token.0, (500 - 50) + t2);
+    assert_eq!(c.uno_claimable(0).0, 0);
+}
+
+#[test]
+#[should_panic(expected = "launch reversed — pool frozen")]
+fn reversed_pool_is_frozen() {
+    let mut c = uno_rugged();
+    from_usdc(&mut c, "bob.near", USDC, r#"{"uno_buy":{"id":0,"min_out":"0"}}"#, 200_000);
+}
+
+#[test]
+#[should_panic(expected = "launch reversed — allocation burned")]
+fn dev_cannot_claim_after_reverse() {
+    let mut c = uno_rugged();
+    ctx(dev(), 10_000_000);
+    let _ = c.claim_unlock(0);
+}
+
+#[test]
+fn snapshot_refunds_holders_pro_rata() {
+    let mut c = uno_rugged();
+    ctx(watcher(), 100_000);
+    c.set_uno_snapshot(0, vec![("bob.near".parse().unwrap(), U128(3_000)), ("carol.near".parse().unwrap(), U128(1_000))]);
+    ctx(accounts(5), 100_100);
+    assert_eq!(c.distribute_uno_refunds(0, None), 2);
+    let l = c.get_uno_launch(0).unwrap();
+    assert_eq!(l.refunds_paid_usdc.0, 140 * USDC);
+    assert!(c.get_uno_snapshot(0).iter().all(|h| h.paid));
+    assert_eq!(c.distribute_uno_refunds(0, None), 0);
+    // a failed transfer is re-queued
+    ctx_with_result("safu.test.near".parse().unwrap(), 100_200, near_sdk::PromiseResult::Failed);
+    assert!(!c.on_uno_refund(0, 1, U128(35 * USDC)));
+    assert!(!c.get_uno_snapshot(0)[1].paid);
+    assert_eq!(c.get_uno_launch(0).unwrap().refunds_paid_usdc.0, 105 * USDC);
+}
+
+#[test]
+#[should_panic(expected = "dev, insiders and the pool can't be refunded")]
+fn dev_cannot_be_in_refund_snapshot() {
+    let mut c = uno_rugged();
+    ctx(watcher(), 100_000);
+    c.set_uno_snapshot(0, vec![("dev.near".parse().unwrap(), U128(50))]);
+}
+
+#[test]
+#[should_panic(expected = "dev, insiders and the pool can't be refunded")]
+fn insiders_cannot_be_in_refund_snapshot() {
+    let mut c = uno_rugged();
+    ctx(watcher(), 100_000);
+    c.set_uno_snapshot(0, vec![("insider.near".parse().unwrap(), U128(1))]);
+}
+
+#[test]
+#[should_panic(expected = "launch not reversed")]
+fn snapshot_only_after_reverse() {
+    let mut c = uno_setup();
+    ctx(watcher(), 2_000);
+    c.set_uno_snapshot(0, vec![("bob.near".parse().unwrap(), U128(1))]);
+}

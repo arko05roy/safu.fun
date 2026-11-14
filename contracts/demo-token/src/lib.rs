@@ -1,8 +1,9 @@
 //! Plain NEP-141 memecoin for safu.fun demos: whole supply is minted to the
 //! deployer ("dev"), who can then distribute or dump it like any real launch.
-//! Follows the near-sdk-rs fungible-token example.
+//! Follows the near-sdk-rs fungible-token example, plus holder `ft_burn` so
+//! UNO REVERSE can destroy a rugging dev's locked bag for real.
 
-use near_contract_standards::fungible_token::events::FtMint;
+use near_contract_standards::fungible_token::events::{FtBurn, FtMint};
 use near_contract_standards::fungible_token::metadata::{
     FungibleTokenMetadata, FungibleTokenMetadataProvider, FT_METADATA_SPEC,
 };
@@ -61,6 +62,16 @@ impl Contract {
         }
         .emit();
         this
+    }
+
+    /// Burn `amount` from the caller's own balance (1 yoctoNEAR).
+    #[payable]
+    pub fn ft_burn(&mut self, amount: U128, memo: Option<String>) {
+        near_sdk::assert_one_yocto();
+        let owner = env::predecessor_account_id();
+        require!(amount.0 > 0, "zero burn");
+        self.token.internal_withdraw(&owner, amount.0);
+        FtBurn { owner_id: &owner, amount, memo: memo.as_deref() }.emit();
     }
 }
 

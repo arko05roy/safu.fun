@@ -46,6 +46,8 @@ function call<T>(methodName: string, args: Record<string, unknown>, tgas: bigint
 }
 
 export const safu = {
+  view,
+  call: <T>(method: string, args: Record<string, unknown>, tgas: bigint) => call<T>(method, args, tgas),
   async listWatched(): Promise<WatchedToken[]> {
     const out: WatchedToken[] = [];
     for (let from = 0; ; from += 50) {
