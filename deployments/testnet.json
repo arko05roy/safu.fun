@@ -1,0 +1,12 @@
+{
+  "network": "testnet",
+  "contract": "cover.safufun-d73f3d.testnet",
+  "owner": "safufun-d73f3d.testnet",
+  "api": "api.safufun-d73f3d.testnet",
+  "watcher": "watcher.safufun-d73f3d.testnet",
+  "relayer": "relayer.safufun-d73f3d.testnet",
+  "usdc": "3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af",
+  "mpc_signer": "v1.signer-prod.testnet",
+  "deploy_tx": "Dt4RMBnLYo96mkKYkFG3GvmnLNMEHc9EA4TfSn77RkA5",
+  "params": { "dispute_window_ms": 60000, "waiting_period_ms": 0 }
+}

@@ -30,3 +30,7 @@ cd contracts/safu && cargo near build non-reproducible-wasm   # -> target/near/s
 3. Allowlisted watcher calls `report_rug(token, rule, evidence)` → dispute window.
 4. Anyone calls `finalize_rug(report_id)` after the window → payouts queued at 80% of cover (pro-rata if pool is short).
 5. Relayer calls `request_payout_intents(payout_id, deposit_address)` with a 1Click deposit address → USDC sent → swapped to the user's asset on the user's chain → `mark_paid(payout_id, dest_tx_hash)`.
+
+### Testnet deployment
+
+Contract: [`cover.safufun-d73f3d.testnet`](https://testnet.nearblocks.io/address/cover.safufun-d73f3d.testnet) — accounts in [`deployments/testnet.json`](deployments/testnet.json). Keys live in `~/.near-credentials` (never committed).
