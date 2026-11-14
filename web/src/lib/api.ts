@@ -15,7 +15,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${API}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
   } catch {
-    throw new ApiError(0, "safu API unreachable — is services/api running?");
+    throw new ApiError(0, "safu API unreachable, is services/api running?");
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText, Boolean(body.retry));

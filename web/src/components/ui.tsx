@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { head, rects } from "./mascot/sprite";
 
-type Variant = "primary" | "ghost" | "outline" | "danger";
+type Variant = "primary" | "light" | "ghost" | "outline" | "danger";
 
 const BTN: Record<Variant, string> = {
-  primary: "bg-safu text-void hover:bg-[#d6ff70] shadow-[0_0_0_1px_#c6ff3d,0_8px_30px_-8px_rgb(198_255_61/0.55)]",
+  primary: "bg-safu text-void hover:bg-[#d6ff70]",
+  light: "bg-bone text-void hover:bg-white",
   ghost: "text-ice hover:text-bone hover:bg-white/5",
-  outline: "border border-line-strong text-bone hover:border-ice hover:bg-white/[0.03]",
+  outline: "border border-white/15 text-bone hover:border-white/40 hover:bg-white/[0.04]",
   danger: "bg-rug text-bone hover:bg-[#ff5a50]",
 };
 
@@ -20,8 +22,8 @@ export function Button({
   children,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: "sm" | "md" | "lg"; href?: string }) {
-  const sz = size === "lg" ? "h-14 px-7 text-[15px]" : size === "sm" ? "h-9 px-3.5 text-[13px]" : "h-11 px-5 text-sm";
-  const cls = `group/btn relative inline-flex select-none items-center justify-center gap-2 font-mono font-medium uppercase tracking-[0.08em] transition-all duration-200 active:translate-y-px disabled:pointer-events-none disabled:opacity-40 clip-notch ${sz} ${BTN[variant]} ${className}`;
+  const sz = size === "lg" ? "h-13 px-6 text-[15px]" : size === "sm" ? "h-9 px-3.5 text-[13px]" : "h-11 px-5 text-sm";
+  const cls = `group/btn relative inline-flex select-none items-center justify-center gap-2 font-medium transition-colors duration-200 active:translate-y-px disabled:pointer-events-none disabled:opacity-40 ${sz} ${BTN[variant]} ${className}`;
   if (href)
     return (
       <Link href={href} className={cls}>
@@ -140,27 +142,14 @@ export function Notice({ tone = "ice", children }: { tone?: "ice" | "rug" | "saf
   return <div className={`border px-4 py-3 font-mono text-[13px] leading-relaxed ${t}`}>{children}</div>;
 }
 
-/** Pixel shield mark: an 11×13 bitmap. */
-const MARK = [
-  "00111111100",
-  "01111111110",
-  "11100000111",
-  "11011111011",
-  "11010001011",
-  "11011101011",
-  "11000101011",
-  "11011101011",
-  "01100000110",
-  "01111111110",
-  "00111111100",
-  "00011111000",
-  "00001110000",
-];
-
-export function Mark({ size = 22, className = "" }: { size?: number; className?: string }) {
+/** The mascot's face: our logo mark. */
+export function Mark({ size = 26, className = "" }: { size?: number; className?: string }) {
+  const { cells, x, y, w, h } = head();
   return (
-    <svg width={size} height={(size * 13) / 11} viewBox="0 0 11 13" className={className} shapeRendering="crispEdges" aria-hidden>
-      {MARK.flatMap((row, y) => [...row].map((v, x) => (v === "1" ? <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill="currentColor" /> : null)))}
+    <svg width={size} height={(size * h) / w} viewBox={`${x} ${y} ${w} ${h}`} className={className} shapeRendering="crispEdges" aria-hidden>
+      {rects(cells).map((r) => (
+        <rect key={`${r.x}-${r.y}`} x={r.x} y={r.y} width={r.w + 0.02} height="1.02" fill={r.c} />
+      ))}
     </svg>
   );
 }
@@ -168,7 +157,7 @@ export function Mark({ size = 22, className = "" }: { size?: number; className?:
 export function Logo({ className = "" }: { className?: string }) {
   return (
     <span className={`inline-flex items-center gap-2.5 ${className}`}>
-      <Mark className="text-safu" />
+      <Mark />
       <span className="font-display text-[17px] leading-none tracking-tight text-bone">
         safu<span className="text-slate">.fun</span>
       </span>

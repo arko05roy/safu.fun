@@ -9,10 +9,10 @@ const mono = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["latin"] }
 const pixel = Silkscreen({ variable: "--font-silkscreen", subsets: ["latin"], weight: ["400", "700"] });
 
 export const metadata: Metadata = {
-  title: { default: "safu.fun — rug cover for any memecoin, any chain", template: "%s · safu.fun" },
-  description: "Buy any memecoin on any chain. If it rugs, you get paid back — on any chain you want. Built on NEAR Intents and Chain Signatures.",
+  title: { default: "safu.fun: rug cover for any memecoin, any chain", template: "%s · safu.fun" },
+  description: "Buy any memecoin on any chain. If it rugs, you get paid back, on any chain you want. Built on NEAR Intents and Chain Signatures.",
   openGraph: {
-    title: "safu.fun — the rug got rugged",
+    title: "safu.fun: the rug got rugged",
     description: "Rug cover for any memecoin on any chain, paid out wherever you want by a NEAR contract.",
   },
 };

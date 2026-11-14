@@ -103,7 +103,7 @@ export default function CoverClient() {
             <div className="relative">
               <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate">{phase === "ACTIVE" ? "cover ends in" : phase === "EXPIRED" ? "cover ended" : "rug detected"}</div>
               <div className={`mt-3 font-display text-[clamp(2.6rem,7vw,5rem)] leading-none tabular ${rugged ? "text-rug" : "text-bone"}`}>
-                {phase === "ACTIVE" ? countdown(left) : phase === "EXPIRED" ? "00:00:00" : report ? ago(report.reported_at_ms, now) : "—"}
+                {phase === "ACTIVE" ? countdown(left) : phase === "EXPIRED" ? "00:00:00" : report ? ago(report.reported_at_ms, now) : "-"}
               </div>
               <div className="mt-6 flex h-2 gap-[2px]">
                 {Array.from({ length: 56 }, (_, i) => (
@@ -126,7 +126,7 @@ export default function CoverClient() {
               <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate">watch</div>
               <span className="flex items-center gap-2 font-mono text-[11px] text-dim">
                 <Dot tone={hb && now - hb < 300_000 ? "safu" : "dim"} pulse={Boolean(hb && now - hb < 300_000)} />
-                heartbeat {hb ? ago(hb, now) : "—"}
+                heartbeat {hb ? ago(hb, now) : "-"}
               </span>
             </div>
             {watch ? (

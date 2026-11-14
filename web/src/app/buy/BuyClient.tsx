@@ -375,13 +375,13 @@ function Ticket({ view, usdcId, capacity }: { view: TokenView | null; usdcId: st
         </div>
 
         <dl className="space-y-2.5 border-t border-dashed border-line-strong pt-5 font-mono text-[13px]">
-          <Line k="rug odds" v={view ? `${view.risk.rugOddsPct.toFixed(1)}%` : "—"} />
-          <Line k="premium rate" v={view ? `${(bps / 100).toFixed(2)}%` : "—"} />
+          <Line k="rug odds" v={view ? `${view.risk.rugOddsPct.toFixed(1)}%` : "-"} />
+          <Line k="premium rate" v={view ? `${(bps / 100).toFixed(2)}%` : "-"} />
           <Line k="max payout (80%)" v={fmtUsd(coverNum * 0.8)} />
           <Line k="window" v="7 days from purchase" />
           <div className="flex items-baseline justify-between border-t border-line pt-3">
             <dt className="text-ice">you pay</dt>
-            <dd className="font-display text-2xl text-bone">{view ? fmtUsd(premium, { digits: 2 }) : "—"}</dd>
+            <dd className="font-display text-2xl text-bone">{view ? fmtUsd(premium, { digits: 2 }) : "-"}</dd>
           </div>
           {accountId && balance !== null && (
             <div className="text-right text-[11px] text-dim">

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 
 /**
- * A field of voxels whose heights follow a rising flame noise — the
+ * A field of voxels whose heights follow a rising flame noise, the
  * pixel-flames brand asset, extruded into 3D. The pointer "ignites" the
  * field; `heat` (0..1) pushes the whole field toward signal red.
  */

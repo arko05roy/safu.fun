@@ -54,7 +54,7 @@ const STEPS = [
   {
     k: "02",
     title: "pay with anything",
-    body: "Pay from whatever you hold, on whatever chain. NEAR Intents routes the swap and the cover premium (1–7%) is taken inside it. No bridge UI, no wrapped tokens.",
+    body: "Pay from whatever you hold, on whatever chain. NEAR Intents routes the swap and the cover premium (1-7%) is taken inside it. No bridge UI, no wrapped tokens.",
     term: ["> 1click quote", "  origin       ETH on Base", "  destination  MOON", "  appFees      628 bps → safu pool", "> status SUCCESS · policy #3 registered"],
   },
   {

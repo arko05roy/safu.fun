@@ -93,7 +93,7 @@ function Plaque({ r }: { r: Report }) {
             <span className="font-mono text-[11px] text-dim">#{r.id}</span>
           </div>
           <div className="mt-8 font-mono text-[11px] uppercase tracking-[0.18em] text-slate">dev wallet</div>
-          <div className="mt-1 truncate font-display text-lg text-bone">{dev ?? "—"}</div>
+          <div className="mt-1 truncate font-display text-lg text-bone">{dev ?? "-"}</div>
           {dumped !== null && (
             <div className="mt-4">
               <div className="flex justify-between font-mono text-[11px] text-dim">

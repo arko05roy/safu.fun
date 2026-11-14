@@ -7,7 +7,7 @@ import { AnimatePresence, motion, useScroll, useSpring } from "motion/react";
 import { useEffect, useState } from "react";
 import { api, CONTRACT, explorer, NETWORK } from "@/lib/api";
 import { useApi, useNow } from "@/lib/hooks";
-import { Button, Dot, Logo } from "./ui";
+import { Button, Logo } from "./ui";
 import { useWallet } from "./wallet";
 
 export function SmoothScroll() {
@@ -51,7 +51,7 @@ export function Nav() {
   return (
     <header className="fixed inset-x-0 top-0 z-50">
       <div className="border-b border-line/80 bg-void/70 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-[1320px] items-center gap-6 px-4 sm:px-6">
+        <div className="mx-auto flex h-16 max-w-[1320px] items-center gap-8 px-4 sm:px-6">
           <Link href="/" aria-label="safu.fun home" className="shrink-0">
             <Logo />
           </Link>
@@ -62,24 +62,24 @@ export function Nav() {
                 <Link
                   key={l.href}
                   href={l.href}
-                  className={`relative px-3 py-2 font-mono text-[12px] uppercase tracking-[0.14em] transition-colors ${active ? "text-bone" : "text-slate hover:text-bone"}`}
+                  className={`relative px-3 py-2 text-[14px] transition-colors ${active ? "text-bone" : "text-slate hover:text-bone"}`}
                 >
                   {l.label}
-                  {active && <motion.span layoutId="nav-active" className="absolute inset-x-3 -bottom-[13px] h-px bg-safu" />}
+                  {active && <motion.span layoutId="nav-active" className="absolute inset-x-3 -bottom-[17px] h-px bg-safu" />}
                 </Link>
               );
             })}
           </nav>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-5">
             <WatcherPill />
             {accountId ? (
               <div className="relative">
                 <button
                   onClick={() => setMenu((m) => !m)}
-                  className="flex h-9 items-center gap-2 border border-line-strong px-3 font-mono text-[12px] text-ice transition-colors hover:border-ice hover:text-bone"
+                  className="flex h-9 items-center gap-2.5 border border-white/15 px-3 font-mono text-[13px] text-bone transition-colors hover:border-white/40"
                 >
-                  <Dot tone="safu" />
-                  <span className="max-w-[140px] truncate">{accountId}</span>
+                  <span className="max-w-[160px] truncate">{accountId}</span>
+                  <span aria-hidden className="text-slate">▾</span>
                 </button>
                 <AnimatePresence>
                   {menu && (
@@ -106,8 +106,8 @@ export function Nav() {
                 </AnimatePresence>
               </div>
             ) : (
-              <Button size="sm" variant="outline" onClick={connect} disabled={!ready}>
-                Connect
+              <Button size="sm" variant="light" onClick={connect} disabled={!ready}>
+                Connect wallet
               </Button>
             )}
             <button className="grid h-9 w-9 place-items-center border border-line-strong md:hidden" aria-label="Menu" onClick={() => setOpenOn(open ? null : pathname)}>
@@ -140,11 +140,11 @@ function WatcherPill() {
   const live = age !== null && age < 5 * 60_000;
   return (
     <div
-      className="hidden items-center gap-2 border border-line px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-slate lg:flex"
-      title={hb ? `last watcher heartbeat ${new Date(hb).toLocaleTimeString()}` : "watcher status unknown"}
+      className="hidden items-center gap-2 text-[13px] text-slate lg:flex"
+      title={hb ? `Rug watcher last checked in ${new Date(hb).toLocaleTimeString()}` : "Rug watcher status unknown"}
     >
-      <Dot tone={data ? (live ? "safu" : "ice") : "dim"} pulse={live} />
-      {NETWORK} · {data ? (live ? "watcher live" : "watcher idle") : "connecting"}
+      {live && <span aria-label="Rug watcher live" className="h-1.5 w-1.5 animate-pulse-dot bg-safu" />}
+      <span className="capitalize">{NETWORK}</span>
     </div>
   );
 }
