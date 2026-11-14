@@ -58,6 +58,20 @@
       "nonce": 2,
       "signed_evm_tx_hash": "0x381fba856f64a64b950e38232d1ff2f7232c53e197320e3c7af972412cb1a817",
       "broadcast": "blocked: pool address has 0 Base Sepolia ETH for gas"
+    },
+    {
+      "date": "2026-11-14",
+      "kind": "cover-only purchase via API-signed quote (services/api /cover/quote -> buyer ft_transfer_call)",
+      "token": "near:moon.safudemo-81cf1a.testnet",
+      "rug_odds_pct": 88,
+      "premium_bps": 628,
+      "cover_usdc": "1000000",
+      "premium_usdc": "62800",
+      "payer": "buyer.safudemo-81cf1a.testnet",
+      "policy_id": 3,
+      "purchase_tx": "DNEqCG2qvEZ7svaVr2toRQ7peBBMnHs4VF3Xbut9K4Rj",
+      "replay_check": "same quote resent twice: both fully refunded by NEP-141, no new policy (tx AycsTYqEvXdUKp8axbFyqiRLfTjzyKRoyiDfhkqbC9zQ + one more)",
+      "watcher": "picked up MOON on next pass (deployer out 0%)"
     }
   ],
   "upgrades": [
