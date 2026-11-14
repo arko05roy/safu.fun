@@ -25,6 +25,8 @@ The API account must be the contract's `api`. The quote-signing key's public hal
 | `GET /buy/:depositAddress` | settlement status of an Intents buy |
 | `GET /policy/:id`, `/payout/:id`, `/report/:id` | contract records |
 | `GET /wall` | Wall of Rugs: every finalized rug report |
+| `GET /staking` | $SAFU pot, premium share, burns, token supply |
+| `GET /stake/:account` | one underwriter's stake and claimable USDC |
 
 ### Cover-only flow
 1. `POST /cover/quote {token_chain, token_addr, cover_usdc, payout_chain, payout_asset, recipient, payer}`.

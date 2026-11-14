@@ -92,6 +92,19 @@
         "broadcast": "no Base Sepolia gas"
       },
       "duration_s": 188
+    },
+    {
+      "date": "2026-11-14",
+      "kind": "scripts/demo with $SAFU stakers (1B staked)",
+      "report_id": 7,
+      "policies": [
+        12,
+        13
+      ],
+      "near_payout_usdc": "0.5487",
+      "stakers_earned_usdc": "0.0332 (50% of premiums)",
+      "safu_burned": "71.8M (7.18% pool loss ratio); SAFU total supply 1B -> 928.2M",
+      "claim": "owner claimed 0.0192 USDC rewards on-chain (pre-v0.8 rounding; 0.0012 USDC stayed as unallocated dust)"
     }
   ],
   "upgrades": [
@@ -122,6 +135,19 @@
       "init": "none (code-only; enum variant appended)",
       "tx": "F5Y3zr6v7Zxcrk1UPssRPcrYBwUoDT7YNmjREfUXoEe3",
       "change": "NEAR-direct USDC payout rail (request_payout_near)"
+    },
+    {
+      "date": "2026-11-14",
+      "to": "v0.7",
+      "init": "migrate_v7",
+      "tx": "7F3p49fVXgXaUZVSdfGgGeqQ3Qmnez3m3kid1V5EiQiR",
+      "change": "$SAFU staking: premium share, loss-ratio burn on rugs, unbonding; state preserved"
+    },
+    {
+      "date": "2026-11-14",
+      "to": "v0.8",
+      "init": "migrate_v8",
+      "change": "reward accumulator precision 1e24 -> 1e36 (live run showed ~3.6% of staker rewards lost to rounding); min stake 1 SAFU; views identical"
     }
   ],
   "api_quote_pubkey": "ed25519:4ikNBxWheAYfb1UpGVRFxQVbikewht9xqYMDYimRz8kg",
@@ -149,5 +175,10 @@
       "buyer": "buyer.safudemo-81cf1a.testnet",
       "note": "watch registered by API on first /cover/quote"
     }
-  ]
+  ],
+  "safu_token": "safu-token.safufun-d73f3d.testnet",
+  "stakers": {
+    "safufun-d73f3d.testnet": "600M SAFU",
+    "staker2.safufun-d73f3d.testnet": "400M SAFU"
+  }
 }

@@ -16,12 +16,16 @@ mod evm;
 mod intents;
 mod migrate;
 mod cover;
+mod staking;
+mod math;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
 pub use types::*;
+pub use staking::{StakeView, Staker, StakingStats};
+use staking::StakingState;
 
 use events::emit;
 use near_sdk::json_types::U128;
@@ -116,6 +120,10 @@ pub struct Safu {
     api_pubkey: Option<[u8; 32]>,
     /// Cover quote nonces already used (replay protection).
     used_quote_nonces: LookupSet<String>,
+
+    /// $SAFU staking: pot, shares, premium accumulator, burns.
+    stk: StakingState,
+    stakers: LookupMap<AccountId, Staker>,
 }
 
 #[near]
@@ -168,6 +176,8 @@ impl Safu {
             last_heartbeat_ms: 0,
             api_pubkey: None,
             used_quote_nonces: LookupSet::new(b"N"),
+            stk: StakingState::new(dispute_window_ms * 2 + 1),
+            stakers: LookupMap::new(b"S"),
         }
     }
 
@@ -208,6 +218,7 @@ impl Safu {
         self.assert_owner();
         if let Some(v) = dispute_window_ms {
             self.dispute_window_ms = v;
+            require!(self.stk.unbond_ms > v, "unbonding must outlast the dispute window");
         }
         if let Some(v) = waiting_period_ms {
             self.waiting_period_ms = v;
@@ -254,12 +265,15 @@ impl Safu {
         amount: U128,
         msg: String,
     ) -> PromiseOrValue<U128> {
-        require!(
-            env::predecessor_account_id() == self.usdc,
-            "only the pool USDC token is accepted"
-        );
+        let token = env::predecessor_account_id();
         let amount = amount.0;
         require!(amount > 0, "zero amount");
+        if self.stk.safu_token.as_ref() == Some(&token) {
+            require!(msg == "stake", "$SAFU transfers must use msg \"stake\"");
+            self.stake(sender_id, amount);
+            return PromiseOrValue::Value(U128(0));
+        }
+        require!(token == self.usdc, "only the pool USDC token is accepted");
         if msg.starts_with('{') {
             // Cover-only purchase: premium paid in USDC with an API-signed quote.
             // Any failed check panics, and NEP-141 refunds the full transfer.
@@ -270,12 +284,15 @@ impl Safu {
             );
             return PromiseOrValue::Value(U128(0));
         }
-        match msg.as_str() {
-            "fund" => {}
-            "premium" => self.premiums_earned += amount,
+        let to_pool = match msg.as_str() {
+            "fund" => amount,
+            "premium" => {
+                self.premiums_earned += amount;
+                self.distribute_premium(amount)
+            }
             _ => env::panic_str("msg must be \"fund\", \"premium\" or a buy_cover object"),
-        }
-        self.pool_available += amount;
+        };
+        self.pool_available += to_pool;
         emit(
             "pool_deposit",
             json!({ "sender": sender_id, "amount": U128(amount), "kind": msg }),
@@ -552,6 +569,7 @@ impl Safu {
 
         // Pass 2: pro-rata against available pool.
         let available = self.pool_available;
+        let pool_capital_before = available;
         let mut payout_ids = Vec::with_capacity(eligible.len());
         let mut total: u128 = 0;
         for (policy_id, gross) in eligible {
@@ -589,6 +607,8 @@ impl Safu {
 
         self.pool_available -= total;
         self.pool_reserved += total;
+        // stakers eat the rug: burn the staked pot by the pool's loss ratio
+        self.slash_for_rug(report_id, total, pool_capital_before);
         self.open_report.remove(&key);
         self.rugged.insert(key.clone(), report_id);
         self.active_tokens.remove(&key);

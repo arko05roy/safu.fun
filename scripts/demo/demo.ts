@@ -170,6 +170,10 @@ async function main() {
       ? [{ label: "Base Sepolia", payout_chain: "base-sepolia", payout_asset: "nep141:base-0x036cbd53842c5426634e7929541ec2318f3dcf7e.omft.near", recipient: EVM_RECIPIENT, cover: (room * 35n) / 100n }]
       : []),
   ];
+  type Stk = { total_staked_safu: string; total_burned_safu: string; rewards_reserved_usdc: string; rewards_paid_usdc: string; staker_share_bps: number; safu_token: string | null };
+  const stk0 = await safuView<Stk>("staking_stats");
+  const safu = (x: string | bigint) => `${(Number(BigInt(x) / 10n ** 15n) / 1e3).toLocaleString("en-US", { maximumFractionDigits: 1 })}`;
+  if (BigInt(stk0.total_staked_safu) > 0n) say(`${c.dim}underwriters have ${safu(stk0.total_staked_safu)} $SAFU staked behind the pool · they earn ${stk0.staker_share_bps / 100}% of premiums${c.x}`);
   const buyer = acct(BUYER);
   const balBefore = await view<string>(cfg.config.usdc, "ft_balance_of", { account_id: BUYER });
   for (const leg of legs) {
@@ -214,6 +218,13 @@ async function main() {
   }
   const balAfter = await view<string>(cfg.config.usdc, "ft_balance_of", { account_id: BUYER });
   say(`buyer USDC on NEAR: ${usdc(balBefore)} → ${usdc(balAfter)} (premiums paid, payout received)`);
+  const stk1 = await safuView<Stk>("staking_stats");
+  const burned = BigInt(stk1.total_burned_safu) - BigInt(stk0.total_burned_safu);
+  const earned = BigInt(stk1.rewards_reserved_usdc) + BigInt(stk1.rewards_paid_usdc) - BigInt(stk0.rewards_reserved_usdc) - BigInt(stk0.rewards_paid_usdc);
+  if (burned > 0n || earned > 0n) {
+    const supply = stk1.safu_token ? await view<string>(stk1.safu_token, "ft_total_supply") : null;
+    say(`${c.r}🔥 stakers ate the rug: ${safu(burned)} $SAFU burned${c.x}${supply ? ` (supply now ${safu(supply)})` : ""} · they earned ${usdc(earned)} USDC in premiums`);
+  }
 
   console.log(`\n${clock()} ${c.b}the rug got rugged.${c.x} safu.fun — buy anything, anywhere. if it rugs, you get paid.`);
   console.log(`${c.dim}built on NEAR Chain Signatures + Intents · dev ${DEV} · coin ${COIN} · report #${reportId}${c.x}`);

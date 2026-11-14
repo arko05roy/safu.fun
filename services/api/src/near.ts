@@ -35,6 +35,9 @@ export const safu = {
   getPayout: (payout_id: number) => view<unknown>("get_payout", { payout_id }),
   getReport: (report_id: number) => view<unknown>("get_report", { report_id }),
   lastHeartbeatMs: () => view<number>("last_heartbeat_ms"),
+  stakingStats: () => view<{ safu_token: string | null; total_staked_safu: string; total_burned_safu: string; [k: string]: unknown }>("staking_stats"),
+  getStake: (account_id: string) => view<unknown>("get_stake", { account_id }),
+  ftTotalSupply: (token: string) => provider.callFunction({ contractId: token, method: "ft_total_supply", args: {} }) as Promise<string>,
 
   registerTokenWatch: (
     token_chain: string,

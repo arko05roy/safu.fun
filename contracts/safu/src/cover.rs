@@ -65,8 +65,8 @@ impl Safu {
             format!("cover-only:{}", q.nonce),
             q.expires_at_ms,
         );
-        self.pool_available += amount;
         self.premiums_earned += amount;
+        self.pool_available += self.distribute_premium(amount);
         id
     }
 }

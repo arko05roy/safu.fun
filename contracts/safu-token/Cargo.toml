@@ -1,0 +1,15 @@
+[package]
+name = "safu-token"
+version = "0.1.0"
+edition = "2021"
+description = "$SAFU — the safu.fun underwriting token (NEP-141 with holder burn)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5.30.2"
+near-contract-standards = "5.30.2"
+
+[dev-dependencies]
+near-sdk = { version = "5.30.2", features = ["unit-testing"] }

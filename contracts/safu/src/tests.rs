@@ -728,3 +728,195 @@ fn near_direct_rejects_other_assets() {
     let (mut c, pid) = near_payout_setup("buyer.testnet", "nep141:wrap.near");
     let _ = c.request_payout_near(pid);
 }
+
+// ───────── $SAFU staking ─────────
+fn safu_token() -> AccountId {
+    "safu-token.test.near".parse().unwrap()
+}
+const SAFU: u128 = 1_000_000_000_000_000_000; // 1e18
+
+fn staking_setup(pool: u128) -> Safu {
+    let mut c = setup(pool);
+    ctx(owner(), 1_500);
+    c.set_safu_token(safu_token());
+    c
+}
+
+fn stake(c: &mut Safu, who: &str, amount: u128, now_ms: u64) {
+    ctx(safu_token(), now_ms);
+    let _ = c.ft_on_transfer(who.parse().unwrap(), U128(amount), "stake".into());
+}
+
+fn premium(c: &mut Safu, amount: u128, now_ms: u64) {
+    ctx(usdc(), now_ms);
+    let _ = c.ft_on_transfer(api(), U128(amount), "premium".into());
+}
+
+fn stake_of(c: &Safu, who: &str) -> StakeView {
+    c.get_stake(who.parse().unwrap()).unwrap()
+}
+
+#[test]
+fn stakers_share_premiums_pro_rata() {
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 100 * SAFU, 2_000);
+    stake(&mut c, "bob.near", 300 * SAFU, 2_000);
+    premium(&mut c, 1_000_000, 3_000); // 1 USDC premium, 50% to stakers
+    assert_eq!(stake_of(&c, "alice.near").claimable_usdc.0, 125_000);
+    assert_eq!(stake_of(&c, "bob.near").claimable_usdc.0, 375_000);
+    let s = c.pool_stats();
+    assert_eq!(s.available_usdc.0, 1_000 * USDC + 500_000);
+    assert_eq!(s.premiums_earned_usdc.0, 1_000_000);
+    assert_eq!(c.staking_stats().rewards_reserved_usdc.0, 500_000);
+}
+
+#[test]
+fn late_stakers_do_not_get_past_premiums() {
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 100 * SAFU, 2_000);
+    premium(&mut c, 1_000_000, 3_000);
+    stake(&mut c, "bob.near", 100 * SAFU, 4_000);
+    assert_eq!(stake_of(&c, "bob.near").claimable_usdc.0, 0);
+    premium(&mut c, 1_000_000, 5_000);
+    assert_eq!(stake_of(&c, "alice.near").claimable_usdc.0, 500_000 + 250_000);
+    assert_eq!(stake_of(&c, "bob.near").claimable_usdc.0, 250_000);
+}
+
+#[test]
+fn no_stakers_means_whole_premium_to_pool() {
+    let mut c = staking_setup(1_000 * USDC);
+    premium(&mut c, 1_000_000, 3_000);
+    assert_eq!(c.pool_stats().available_usdc.0, 1_000 * USDC + 1_000_000);
+}
+
+#[test]
+fn rug_burns_stake_by_pool_loss_ratio() {
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 1_000 * SAFU, 1_800);
+    register(&mut c, 100 * USDC, 2_000); // payout 80 USDC = 8% of 1000 pool
+    let rid = report(&mut c, 3_000);
+    ctx(accounts(4), 70_000);
+    c.finalize_rug(rid);
+    let st = c.staking_stats();
+    assert_eq!(st.total_burned_safu.0, 80 * SAFU);
+    assert_eq!(st.total_staked_safu.0, 920 * SAFU);
+    assert_eq!(stake_of(&c, "alice.near").staked_safu.0, 920 * SAFU);
+}
+
+#[test]
+fn slash_is_capped() {
+    let mut c = staking_setup(100 * USDC);
+    stake(&mut c, "alice.near", 1_000 * SAFU, 1_800);
+    ctx(owner(), 1_900);
+    c.set_params(None, None, None, Some(10_000));
+    register(&mut c, 100 * USDC, 2_000); // payout 80 of 100 = 80% loss -> capped at 50%
+    let rid = report(&mut c, 3_000);
+    ctx(accounts(4), 70_000);
+    c.finalize_rug(rid);
+    assert_eq!(c.staking_stats().total_staked_safu.0, 500 * SAFU);
+}
+
+#[test]
+fn unbonding_stake_earns_nothing_but_is_still_slashed() {
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 500 * SAFU, 1_800);
+    stake(&mut c, "bob.near", 500 * SAFU, 1_800);
+    ctx("bob.near".parse().unwrap(), 1_900);
+    c.request_unstake(None);
+    premium(&mut c, 1_000_000, 2_000);
+    assert_eq!(stake_of(&c, "alice.near").claimable_usdc.0, 500_000);
+    assert_eq!(stake_of(&c, "bob.near").claimable_usdc.0, 0);
+    // a rug while bob is unbonding still hits bob
+    register(&mut c, 100 * USDC, 2_100);
+    let rid = report(&mut c, 3_000);
+    ctx(accounts(4), 70_000);
+    c.finalize_rug(rid);
+    assert!(stake_of(&c, "bob.near").staked_safu.0 < 500 * SAFU);
+}
+
+#[test]
+#[should_panic(expected = "still unbonding")]
+fn cannot_withdraw_before_unbonding_ends() {
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 100 * SAFU, 1_800);
+    ctx("alice.near".parse().unwrap(), 2_000);
+    c.request_unstake(None);
+    ctx("alice.near".parse().unwrap(), 2_000 + 120_000);
+    let _ = c.withdraw_unstaked();
+}
+
+#[test]
+fn withdraw_after_unbonding_and_restore_on_failed_transfer() {
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 100 * SAFU, 1_800);
+    ctx("alice.near".parse().unwrap(), 2_000);
+    c.request_unstake(None);
+    ctx("alice.near".parse().unwrap(), 2_000 + 120_001);
+    let _ = c.withdraw_unstaked();
+    assert_eq!(c.staking_stats().total_staked_safu.0, 0);
+    ctx_with_result("safu.test.near".parse().unwrap(), 130_000, near_sdk::PromiseResult::Failed);
+    assert!(!c.on_unstake_transfer("alice.near".parse().unwrap(), U128(100 * SAFU), U128(100 * SAFU)));
+    assert_eq!(c.staking_stats().total_staked_safu.0, 100 * SAFU);
+    assert_eq!(stake_of(&c, "alice.near").unbonding_shares.0, 100 * SAFU);
+}
+
+#[test]
+fn claim_rewards_moves_pending_and_restores_on_failure() {
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 100 * SAFU, 1_800);
+    premium(&mut c, 2_000_000, 2_000);
+    ctx("alice.near".parse().unwrap(), 3_000);
+    let _ = c.claim_rewards();
+    assert_eq!(stake_of(&c, "alice.near").claimable_usdc.0, 0);
+    assert_eq!(c.staking_stats().rewards_paid_usdc.0, 1_000_000);
+    ctx_with_result("safu.test.near".parse().unwrap(), 3_001, near_sdk::PromiseResult::Failed);
+    assert!(!c.on_claim_rewards("alice.near".parse().unwrap(), U128(1_000_000)));
+    assert_eq!(stake_of(&c, "alice.near").claimable_usdc.0, 1_000_000);
+    assert_eq!(c.staking_stats().rewards_reserved_usdc.0, 1_000_000);
+}
+
+#[test]
+fn cover_only_premium_is_shared_with_stakers() {
+    let mut c = cover_setup();
+    ctx(owner(), 1_600);
+    c.set_safu_token(safu_token());
+    stake(&mut c, "alice.near", 100 * SAFU, 1_700);
+    let (q, s) = cq("valid");
+    pay(&mut c, "eugene.near", 500_000, buy_msg(&q, &s), 2_000);
+    assert_eq!(stake_of(&c, "alice.near").claimable_usdc.0, 250_000);
+}
+
+#[test]
+#[should_panic(expected = "$SAFU transfers must use msg")]
+fn safu_transfer_needs_stake_msg() {
+    let mut c = staking_setup(0);
+    ctx(safu_token(), 2_000);
+    let _ = c.ft_on_transfer("alice.near".parse().unwrap(), U128(SAFU), "fund".into());
+}
+
+#[test]
+#[should_panic(expected = "unbonding must outlast the dispute window")]
+fn unbonding_must_outlast_disputes() {
+    let mut c = staking_setup(0);
+    ctx(owner(), 2_000);
+    c.set_staking_params(None, None, Some(60_000));
+}
+
+#[test]
+fn reward_precision_with_full_supply_staked() {
+    // live testnet numbers: 600M + 400M $SAFU staked, premiums of 0.0406 and 0.0258 USDC
+    let mut c = staking_setup(1_000 * USDC);
+    stake(&mut c, "alice.near", 600_000_000 * SAFU, 2_000);
+    stake(&mut c, "bob.near", 400_000_000 * SAFU, 2_000);
+    premium(&mut c, 40_600, 3_000);
+    premium(&mut c, 25_800, 3_100);
+    assert_eq!(stake_of(&c, "alice.near").claimable_usdc.0, 19_920);
+    assert_eq!(stake_of(&c, "bob.near").claimable_usdc.0, 13_280);
+}
+
+#[test]
+#[should_panic(expected = "minimum stake is 1 $SAFU")]
+fn dust_stakes_are_rejected() {
+    let mut c = staking_setup(0);
+    stake(&mut c, "alice.near", SAFU - 1, 2_000);
+}

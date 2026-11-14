@@ -3,9 +3,9 @@
 
 use crate::*;
 
-/// v0.4 layout (token watches, before API-signed cover-only sales).
+/// v0.5/v0.6 layout (cover-only sales, before $SAFU staking).
 #[near(serializers = [borsh])]
-pub struct SafuV4 {
+pub struct SafuV6 {
     owner: AccountId,
     usdc: AccountId,
     api: AccountId,
@@ -37,17 +37,30 @@ pub struct SafuV4 {
     watches: LookupMap<String, TokenWatch>,
     active_tokens: IterableSet<String>,
     last_heartbeat_ms: u64,
+    api_pubkey: Option<[u8; 32]>,
+    used_quote_nonces: LookupSet<String>,
 }
 
 #[near]
 impl Safu {
-    /// v0.4 -> v0.5: adds the API quote-signing key and used-nonce set.
+    /// v0.7 -> v0.8: same layout; reward accumulator rescaled 1e24 -> 1e36.
+    /// Staker reward debts are stored in USDC units, so only the global
+    /// accumulator changes (shares × acc / scale is preserved exactly).
     #[private]
     #[init(ignore_state)]
-    pub fn migrate_v5(api_pubkey: Option<String>) -> Self {
-        let old: SafuV4 = env::state_read().expect("no v0.4 state");
-        let api_pubkey = api_pubkey.map(|k| intents::parse_pubkey(&k).expect("bad api_pubkey"));
-        emit("migrated", json!({ "to": "v0.5" }));
+    pub fn migrate_v8() -> Self {
+        let mut this: Safu = env::state_read().expect("no v0.7 state");
+        this.stk.acc_reward_per_share *= 1_000_000_000_000;
+        emit("migrated", json!({ "to": "v0.8" }));
+        this
+    }
+
+    /// v0.6 -> v0.7: adds $SAFU staking (token is set later with set_safu_token).
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate_v7() -> Self {
+        let old: SafuV6 = env::state_read().expect("no v0.6 state");
+        emit("migrated", json!({ "to": "v0.7" }));
         Self {
             owner: old.owner,
             usdc: old.usdc,
@@ -80,8 +93,10 @@ impl Safu {
             watches: old.watches,
             active_tokens: old.active_tokens,
             last_heartbeat_ms: old.last_heartbeat_ms,
-            api_pubkey,
-            used_quote_nonces: LookupSet::new(b"N"),
+            api_pubkey: old.api_pubkey,
+            used_quote_nonces: old.used_quote_nonces,
+            stk: StakingState::new(old.dispute_window_ms * 2 + 1),
+            stakers: LookupMap::new(b"S"),
         }
     }
 }
@@ -93,7 +108,7 @@ mod tests {
     use near_sdk::testing_env;
 
     #[test]
-    fn migrates_v4_state_preserving_pool_payouts_and_watches() {
+    fn migrates_v6_state_preserving_everything() {
         let mut b = VMContextBuilder::new();
         b.current_account_id("safu.test.near".parse().unwrap())
             .predecessor_account_id("safu.test.near".parse().unwrap());
@@ -116,7 +131,7 @@ mod tests {
         let mut active = IterableSet::new(b"A");
         active.insert("near:rugme.x".to_string());
         active.flush();
-        let old = SafuV4 {
+        let old = SafuV6 {
             owner: accounts(0), usdc: accounts(1), api: accounts(2),
             watchers: IterableSet::new(b"w"), relayers,
             dispute_window_ms: 60_000, waiting_period_ms: 0, deductible_bps: 2_000, max_token_exposure_bps: 1_000,
@@ -131,10 +146,12 @@ mod tests {
             watches: LookupMap::new(b"W"),
             active_tokens: active,
             last_heartbeat_ms: 42,
+            api_pubkey: intents::parse_pubkey(intents::DEFAULT_ONECLICK_PUBKEY),
+            used_quote_nonces: LookupSet::new(b"N"),
         };
         env::state_write(&old);
 
-        let c = Safu::migrate_v5(Some(intents::DEFAULT_ONECLICK_PUBKEY.into()));
+        let c = Safu::migrate_v7();
         let s = c.pool_stats();
         assert_eq!(s.available_usdc.0, 17_600_000);
         assert_eq!(s.total_paid_out_usdc.0, 2_400_000);
@@ -145,6 +162,8 @@ mod tests {
         assert_eq!(cfg.oneclick_pubkey, intents::DEFAULT_ONECLICK_PUBKEY);
         assert_eq!(cfg.max_slippage_bps, 250);
         assert_eq!(c.last_heartbeat_ms(), 42);
+        assert_eq!(c.staking_stats().unbond_ms, 120_001);
+        assert_eq!(c.staking_stats().total_staked_safu.0, 0);
         assert_eq!(c.get_config().api_pubkey.as_deref(), Some(intents::DEFAULT_ONECLICK_PUBKEY));
     }
 }

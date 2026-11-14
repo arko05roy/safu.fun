@@ -11,6 +11,8 @@
  *   GET  /buy/:depositAddress        Intents buy settlement status
  *   GET  /policy/:id  /payout/:id  /report/:id
  *   GET  /wall                       Wall of Rugs (all rug reports)
+ *   GET  /staking                    $SAFU pot, premium share, burns, token supply
+ *   GET  /stake/:account             one underwriter's stake + claimable USDC
  */
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
@@ -71,6 +73,17 @@ const byId = (fn: (id: number) => Promise<unknown>) => async (c: any) => {
 app.get("/policy/:id", byId(safu.getPolicy));
 app.get("/payout/:id", byId(safu.getPayout));
 app.get("/report/:id", byId(safu.getReport));
+
+app.get("/staking", async () => {
+  const st = await safu.stakingStats();
+  const supply = st.safu_token ? await safu.ftTotalSupply(st.safu_token) : null;
+  return json({ ...st, safu_total_supply: supply });
+});
+
+app.get("/stake/:account", async (c) => {
+  const v = await safu.getStake(c.req.param("account"));
+  return v ? json(v) : c.json({ error: "not a staker" }, 404);
+});
 
 app.get("/wall", async () => {
   const { reports } = await safu.poolStats();
