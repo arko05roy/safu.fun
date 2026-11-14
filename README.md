@@ -11,7 +11,8 @@ Built on NEAR: Intents (1Click) for any-chain swaps and payouts, Chain Signature
 | Cover contract (pool, policies, rug lifecycle, Intents payouts) | `contracts/safu` | ✅ phase 1 |
 | Chain Signatures payouts (Rail B, EVM) | `contracts/safu` | ✅ contract-built tx |
 | $SAFU token + staking | `contracts/safu-token` | ⏳ |
-| API / watcher / relayer | `services/` | ⏳ |
+| Relayer (Rail A + Rail B) | `services/relayer` | ✅ |
+| API / watcher | `services/` | ⏳ |
 | Frontend (Next.js) | `web/` | ⏳ |
 
 ## Contract
