@@ -168,6 +168,13 @@ export default function DemoClient() {
     setI(Math.max(0, Math.min(STEPS.length - 1, n)));
   }, []);
 
+  // deep links: /demo?step=dump jumps straight to a step
+  useEffect(() => {
+    const key = new URLSearchParams(window.location.search).get("step");
+    const j = STEPS.findIndex((x) => x.key === key);
+    if (j > 0) setI(j);
+  }, []);
+
   // auto-advance with pause/resume that keeps the time already spent
   useEffect(() => {
     if (!playing) return;

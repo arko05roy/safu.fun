@@ -9,7 +9,8 @@
     "lint": "eslint",
     "icon": "tsx scripts/gen-icon.ts",
     "test": "tsx --test src/server/api/risk.test.ts src/server/watcher/rules.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "readme-art": "tsx scripts/gen-readme-art.ts"
   },
   "dependencies": {
     "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
