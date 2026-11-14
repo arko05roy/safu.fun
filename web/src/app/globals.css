@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+/* ───────────────────────── tokens ───────────────────────── */
+@theme {
+  --color-void: #0a0a0a;
+  --color-ink: #111214;
+  --color-panel: #15171b;
+  --color-line: #24272e;
+  --color-line-strong: #353a44;
+  --color-bone: #f2f2f2;
+  --color-ice: #b9c3d6;
+  --color-slate: #7f8ba3;
+  --color-dim: #5a6275;
+  --color-safu: #c6ff3d;
+  --color-rug: #ff3b30;
+
+  --font-display: var(--font-silkscreen), ui-monospace, monospace;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-blink: blink 1.1s steps(1) infinite;
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-pulse-dot: pulse-dot 1.8s ease-in-out infinite;
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+  @keyframes marquee {
+    to { transform: translateX(-50%); }
+  }
+  @keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-safu) 60%, transparent); }
+    50% { box-shadow: 0 0 0 6px transparent; }
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-void);
+}
+
+body {
+  background: var(--color-void);
+  color: var(--color-bone);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-safu);
+  color: var(--color-void);
+}
+
+/* Lenis */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+/* ───────────────────────── utilities ───────────────────────── */
+@utility pixelated {
+  image-rendering: pixelated;
+}
+
+/* tiny dot grid that sits under everything */
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--color-ice) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-ice) 7%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* the dither brand texture */
+@utility bg-dither {
+  background-image: url("/brand/dither-grid.png");
+  background-size: 382px 618px;
+  image-rendering: pixelated;
+}
+
+@utility bg-flames {
+  background-image: url("/brand/pixel-flames.png");
+  background-size: 289px 598px;
+  image-rendering: pixelated;
+}
+
+/* hard-edged pixel corner cut */
+@utility clip-notch {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* scanline overlay */
+@utility scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgb(0 0 0 / 0.18) 3px
+  );
+}
+
+/* focus ring */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-safu);
+  outline-offset: 2px;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* wallet-selector modal: pull it into our palette */
+.nws-modal-wrapper {
+  --wallet-selector-backdrop-bg: rgb(10 10 10 / 0.8);
+  --wallet-selector-background-color: #111214;
+  --wallet-selector-background-secondary-color: #15171b;
+  --wallet-selector-heading-color: #f2f2f2;
+  --wallet-selector-text-color: #b9c3d6;
+  --wallet-selector-sidebar-border-color: #24272e;
+  --wallet-selector-selected-wallet-bg: #1d2026;
+  --wallet-selector-selected-wallet-bg-hover: #24272e;
+  --wallet-selector-wallet-option-border-color: #24272e;
+  --wallet-selector-content-bg: #111214;
+  --wallet-selector-home-button-bg: #c6ff3d;
+  --wallet-selector-confirm-button-bg: #c6ff3d;
+  --wallet-selector-confirm-button-bg-hover: #d6ff70;
+  --wallet-selector-error: #ff3b30;
+  --wallet-selector-close-button-bg-color: #24272e;
+  --wallet-selector-close-button-fill-icon-colour: #b9c3d6;
+  --wallet-selector-spinner-color: #c6ff3d;
+  --wallet-selector-bottom-section: #15171b;
+  --wallet-selector-mobile-text: #b9c3d6;
+  --wallet-selector-connected-green: #c6ff3d;
+  font-family: var(--font-sans);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

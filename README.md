@@ -19,7 +19,7 @@ Built on NEAR: Intents (1Click) for any-chain swaps and payouts, Chain Signature
 | End-to-end demo (PRD §8) | `scripts/demo` | ✅ ~3 min on testnet |
 | NEAR-direct payouts | `contracts/safu` | ✅ |
 | API (rug odds, watch snapshots, signed cover quotes, Intents buys) | `services/api` | ✅ |
-| Frontend (Next.js) | `web/` | ⏳ |
+| Frontend (Next.js) | `web/` | ✅ buy, cover status, underwrite, UNO launches, Wall of Rugs |
 
 ## Run the demo
 
@@ -32,6 +32,16 @@ pnpm --filter @safu/demo uno        # terminal 2: UNO REVERSE launch → rug →
 ```
 
 See [scripts/demo/README.md](scripts/demo/README.md).
+
+## Run the app
+
+```bash
+pnpm install
+pnpm --filter @safu/api start      # terminal 1: http://localhost:8787
+pnpm --filter @safu/web dev        # terminal 2: http://localhost:3000
+```
+
+See [web/README.md](web/README.md).
 
 ## Contract
 
