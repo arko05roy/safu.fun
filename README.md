@@ -86,7 +86,7 @@ flowchart LR
   B["Buyer, any chain"] -- "premium (1-7%)<br/>via NEAR Intents" --> C[("safu cover contract<br/>on NEAR")]
   S["$SAFU stakers"] -- "underwrite: earn 50% of premiums,<br/>burn on rugs" --> C
   W["Rug watcher"] -- "report_rug + dump tx evidence" --> C
-  C -- "dispute window, then finalize_rug<br/>payout = 80% of cover" --> Rpayout rail
+  C -- "dispute window, then finalize_rug<br/>payout = 80% of cover" --> R{"payout rail"}
   R -- "Intents" --> X["any asset, any chain"]
   R -- "Chain Signatures" --> Y["EVM address the contract owns"]
   R -- "NEAR direct" --> Z["NEAR account"]
