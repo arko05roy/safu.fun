@@ -2,8 +2,7 @@
  * NEP-141 tokens on NEAR. Balances via RPC `ft_balance_of`; transfer evidence
  * via the NearBlocks v3 FT events index (tx hashes for each outgoing transfer).
  */
-import { JsonRpcProvider } from "near-api-js";
-import { config } from "../config.js";
+import { config, nearProvider } from "../config.js";
 import type { ChainAdapter, Outflow } from "./types.js";
 
 interface FtTxn {
@@ -16,7 +15,7 @@ interface FtTxn {
 
 export class NearAdapter implements ChainAdapter {
   readonly label = `near-${config.network}`;
-  private provider = new JsonRpcProvider({ url: config.nearRpc });
+  private provider = nearProvider(config.network);
 
   async balanceOf(token: string, holder: string): Promise<bigint> {
     const r = await this.provider.callFunction({ contractId: token, method: "ft_balance_of", args: { account_id: holder } });

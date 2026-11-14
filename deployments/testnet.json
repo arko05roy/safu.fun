@@ -72,6 +72,26 @@
       "purchase_tx": "DNEqCG2qvEZ7svaVr2toRQ7peBBMnHs4VF3Xbut9K4Rj",
       "replay_check": "same quote resent twice: both fully refunded by NEP-141, no new policy (tx AycsTYqEvXdUKp8axbFyqiRLfTjzyKRoyiDfhkqbC9zQ + one more)",
       "watcher": "picked up MOON on next pass (deployer out 0%)"
+    },
+    {
+      "date": "2026-11-14",
+      "kind": "scripts/demo end-to-end (all services live, no manual steps)",
+      "dev": "rugdev-9a21e0.testnet",
+      "coin": "coin-1d3483.rugdev-9a21e0.testnet",
+      "rug_odds_pct": 82,
+      "policies": [
+        10,
+        11
+      ],
+      "report_id": 6,
+      "dump_tx": "AXqxuXQbfkUkoZqCBZqUg3GMkAVFj9C8uVRCb9VHMkZq",
+      "near_payout": "0.5879 USDC landed in buyer.safudemo-81cf1a.testnet (21.7477 -> 22.2644 incl. premiums)",
+      "base_sepolia_payout": {
+        "usdc": "0.3741",
+        "mpc_signed_tx_hash": "0x3cb5c012e61c5eee9a81a63284d9fdebb475a75bf853de844c5aae7b565ec145",
+        "broadcast": "no Base Sepolia gas"
+      },
+      "duration_s": 188
     }
   ],
   "upgrades": [
@@ -95,6 +115,13 @@
       "init": "migrate_v5",
       "tx": "24hhnKNhNqx2hr4x2nf7oDW762FUfwYoQrKL9PkM6n5F",
       "change": "API-signed cover-only purchases via ft_transfer_call; api_pubkey set; state preserved"
+    },
+    {
+      "date": "2026-11-14",
+      "to": "v0.6",
+      "init": "none (code-only; enum variant appended)",
+      "tx": "F5Y3zr6v7Zxcrk1UPssRPcrYBwUoDT7YNmjREfUXoEe3",
+      "change": "NEAR-direct USDC payout rail (request_payout_near)"
     }
   ],
   "api_quote_pubkey": "ed25519:4ikNBxWheAYfb1UpGVRFxQVbikewht9xqYMDYimRz8kg",

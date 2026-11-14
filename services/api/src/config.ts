@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import "dotenv/config";
+import { FailoverRpcProvider, JsonRpcProvider } from "near-api-js";
 
 export type Network = "testnet" | "mainnet";
 
@@ -24,8 +25,8 @@ const apiAccount = env("API_ACCOUNT");
 export const CHAINS: Record<string, { kind: "near" | "evm"; rpc: string; explorer: string; chainId?: number }> = {
   near:
     network === "testnet"
-      ? { kind: "near", rpc: "https://rpc.testnet.near.org", explorer: "https://api-testnet.nearblocks.io" }
-      : { kind: "near", rpc: "https://rpc.mainnet.near.org", explorer: "https://api.nearblocks.io" },
+      ? { kind: "near", rpc: "https://test.rpc.fastnear.com", explorer: "https://api-testnet.nearblocks.io" }
+      : { kind: "near", rpc: "https://free.rpc.fastnear.com", explorer: "https://api.nearblocks.io" },
   "base-sepolia": { kind: "evm", rpc: "https://base-sepolia-rpc.publicnode.com", explorer: "https://base-sepolia.blockscout.com" },
   sepolia: { kind: "evm", rpc: "https://ethereum-sepolia-rpc.publicnode.com", explorer: "https://eth-sepolia.blockscout.com" },
   // Mainnet Blockscout instances sit behind a bot challenge; with BLOCKSCOUT_API_KEY
@@ -54,3 +55,17 @@ export const config = {
   treasury: process.env.TREASURY_ACCOUNT || undefined,
   dataDir: env("DATA_DIR", join(process.cwd(), "data")),
 };
+
+// NEAR RPC with failover: public endpoints rate-limit, so rotate across several.
+// Override with NEAR_RPCS (comma-separated).
+const DEFAULT_NEAR_RPCS: Record<"testnet" | "mainnet", string[]> = {
+  testnet: ["https://test.rpc.fastnear.com", "https://near-testnet.drpc.org"],
+  mainnet: ["https://free.rpc.fastnear.com", "https://near.drpc.org"],
+};
+export function nearProvider(network: "testnet" | "mainnet"): FailoverRpcProvider {
+  const urls = (process.env.NEAR_RPCS ?? process.env.NEAR_RPC ?? DEFAULT_NEAR_RPCS[network].join(","))
+    .split(",")
+    .map((u) => u.trim())
+    .filter(Boolean);
+  return new FailoverRpcProvider(urls.map((url) => new JsonRpcProvider({ url }, { retries: 3, wait: 500, backoff: 2 })));
+}

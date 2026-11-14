@@ -19,6 +19,7 @@ import { config } from "./config.js";
 import { HttpError, coverQuote, tokenView } from "./cover.js";
 import { buyQuote, buyStatus, oneClickTokens, settleBuys } from "./buys.js";
 import { safu } from "./near.js";
+import { IndexerLagError } from "./explorers.js";
 
 const log = (m: string) => console.log(`${new Date().toISOString()} [api] ${m}`);
 
@@ -33,6 +34,7 @@ app.use("*", cors());
 
 app.onError((e, c) => {
   if (e instanceof HttpError) return c.json({ error: e.message }, e.status);
+  if (e instanceof IndexerLagError) return c.json({ error: e.message, retry: true }, 503);
   log(`error ${c.req.method} ${c.req.path}: ${e.message}`);
   return c.json({ error: e.message }, 500);
 });

@@ -4,9 +4,8 @@
  * on-chain as baselines are re-read from chain RPC at a single block, so they
  * match exactly what the watcher reads later.
  */
-import { JsonRpcProvider } from "near-api-js";
 import { createPublicClient, http, parseAbi } from "viem";
-import { CHAINS, config } from "./config.js";
+import { CHAINS, config, nearProvider } from "./config.js";
 
 export interface HolderInfo {
   address: string;
@@ -32,9 +31,16 @@ export interface TokenProfile {
   snapshotBlock: bigint;
 }
 
-/** Explorer GET with a TTL cache (Infinity for immutable data) and 429 backoff. */
+/** The explorer hasn't indexed a fresh token yet; retry shortly (API maps this to 503). */
+export class IndexerLagError extends Error {}
+
+/**
+ * Explorer GET with a TTL cache (Infinity for immutable data) and 429 backoff.
+ * Responses failing `keep` (e.g. empty results for a token not indexed yet)
+ * are never cached, so a lagging indexer can't poison the cache.
+ */
 const cache = new Map<string, { at: number; v: unknown }>();
-async function getJson<T>(url: string, headers: Record<string, string> = {}, ttlMs = 60_000): Promise<T> {
+async function getJson<T>(url: string, headers: Record<string, string> = {}, ttlMs = 60_000, keep: (v: T) => boolean = () => true): Promise<T> {
   const hit = cache.get(url);
   if (hit && Date.now() - hit.at < ttlMs) return hit.v as T;
   for (let attempt = 0; ; attempt++) {
@@ -45,7 +51,7 @@ async function getJson<T>(url: string, headers: Record<string, string> = {}, ttl
     }
     if (!r.ok) throw new Error(`${new URL(url).host} ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const v = (await r.json()) as T;
-    cache.set(url, { at: Date.now(), v });
+    if (keep(v)) cache.set(url, { at: Date.now(), v });
     return v;
   }
 }
@@ -53,19 +59,21 @@ const FOREVER = Number.POSITIVE_INFINITY;
 
 // ───────────── NEAR (NEP-141) ─────────────
 
-const nearProvider = new JsonRpcProvider({ url: CHAINS.near.rpc });
+const nearRpc = nearProvider(config.network);
 
-async function nearBlocks<T>(path: string, ttlMs = 60_000): Promise<T> {
+async function nearBlocks<T>(path: string, ttlMs = 60_000, keep?: (v: T) => boolean): Promise<T> {
   return getJson<T>(
     `${CHAINS.near.explorer}/v3${path}`,
     config.nearblocksKey ? { authorization: `Bearer ${config.nearblocksKey}` } : {},
     ttlMs,
+    keep,
   );
 }
+const nonEmpty = (v: { data: unknown }) => (Array.isArray(v.data) ? v.data.length > 0 : v.data != null);
 
 async function nearIsContract(account: string): Promise<boolean> {
   try {
-    const a = (await nearProvider.query({ request_type: "view_account", account_id: account, finality: "final" })) as unknown as { code_hash: string };
+    const a = (await nearRpc.query({ request_type: "view_account", account_id: account, finality: "final" })) as unknown as { code_hash: string };
     return a.code_hash !== "11111111111111111111111111111111";
   } catch {
     return false;
@@ -74,16 +82,17 @@ async function nearIsContract(account: string): Promise<boolean> {
 
 /** Initial-supply recipient: the ft_mint event in the token's first deployment tx. */
 async function nearDeployer(token: string): Promise<string | null> {
-  const deps = await nearBlocks<{ data: { transaction_hash: string }[] }>(`/accounts/${token}/contract/deployments`, FOREVER);
+  const deps = await nearBlocks<{ data: { transaction_hash: string }[] }>(`/accounts/${token}/contract/deployments`, FOREVER, nonEmpty);
   const first = deps.data.at(-1)?.transaction_hash;
-  if (!first) return null;
-  const rec = await nearBlocks<{ data: unknown }>(`/txns/${first}/receipts`, FOREVER);
+  if (!first) throw new IndexerLagError(`indexer has no deployment for ${token} yet`);
+  const rec = await nearBlocks<{ data: unknown }>(`/txns/${first}/receipts`, FOREVER, nonEmpty);
   const logs: string[] = [];
   const walk = (r: any) => {
     logs.push(...(r?.outcome?.logs ?? []));
     (r?.receipts ?? []).forEach(walk);
   };
   (Array.isArray(rec.data) ? rec.data : [rec.data]).forEach(walk);
+  if (logs.length === 0) throw new IndexerLagError(`indexer has no receipts for ${token}'s deployment yet`);
   for (const l of logs) {
     if (!l.startsWith("EVENT_JSON:")) continue;
     const ev = JSON.parse(l.slice(11));
@@ -94,16 +103,18 @@ async function nearDeployer(token: string): Promise<string | null> {
 
 async function nearProfile(token: string): Promise<TokenProfile> {
   const [ft, holders, acct, deployer, head] = await Promise.all([
-    nearBlocks<{ data: { name: string; symbol: string; decimals: number } }>(`/fts/${token}`, FOREVER),
-    nearBlocks<{ data: { account: string; amount: string }[] }>(`/fts/${token}/holders?limit=25`),
-    nearBlocks<{ data: { created?: { block_timestamp?: string } } }>(`/accounts/${token}`, FOREVER),
+    // metadata straight from the token contract (chain truth, no indexer lag)
+    nearRpc.callFunction({ contractId: token, method: "ft_metadata", args: {} }) as Promise<{ name: string; symbol: string; decimals: number }>,
+    nearBlocks<{ data: { account: string; amount: string }[] }>(`/fts/${token}/holders?limit=25`, 10_000, nonEmpty),
+    nearBlocks<{ data: { created?: { block_timestamp?: string } } }>(`/accounts/${token}`, FOREVER, (v) => Boolean(v.data?.created?.block_timestamp)),
     nearDeployer(token),
-    nearProvider.viewBlock({ finality: "final" }),
+    nearRpc.viewBlock({ finality: "final" }),
   ]);
+  if (holders.data.length === 0) throw new IndexerLagError(`indexer has no holders for ${token} yet`);
   const height = BigInt(head.header.height);
   const balance = async (acc: string) =>
     BigInt(
-      ((await nearProvider.callFunction({
+      ((await nearRpc.callFunction({
         contractId: token,
         method: "ft_balance_of",
         args: { account_id: acc },
@@ -111,9 +122,23 @@ async function nearProfile(token: string): Promise<TokenProfile> {
       })) as string) ?? "0",
     );
   const supply = BigInt(
-    ((await nearProvider.callFunction({ contractId: token, method: "ft_total_supply", args: {}, blockQuery: { blockId: Number(height) } })) as string) ?? "0",
+    ((await nearRpc.callFunction({ contractId: token, method: "ft_total_supply", args: {}, blockQuery: { blockId: Number(height) } })) as string) ?? "0",
   );
 
+  const deployerBalance = deployer ? await balance(deployer) : 0n;
+  // holder index behind chain state -> insider list would be wrong; wait for it
+  // The indexer's view of the dev must match chain state at the snapshot block;
+  // if it doesn't, its holder list is stale (transfers not indexed yet).
+  const indexedDev = deployer ? BigInt(holders.data.find((h) => h.account === deployer)?.amount ?? "0") : 0n;
+  if (deployer && indexedDev !== deployerBalance) {
+    throw new IndexerLagError(`indexer holder list for ${token} is behind chain state`);
+  }
+  // For small tokens the indexer returns every holder: their balances must add
+  // up to the on-chain supply, otherwise the index is behind (missed transfers).
+  if (holders.data.length < 25) {
+    const indexed = holders.data.reduce((a, h) => a + BigInt(h.amount), 0n);
+    if (indexed !== supply) throw new IndexerLagError(`indexer holder balances for ${token} don't match on-chain supply yet`);
+  }
   const candidates = holders.data.map((h) => h.account).filter((a) => a !== deployer && a !== token);
   const insiders: HolderInfo[] = [];
   for (const a of candidates) {
@@ -125,14 +150,14 @@ async function nearProfile(token: string): Promise<TokenProfile> {
   return {
     chain: "near",
     address: token,
-    name: ft.data.name,
-    symbol: ft.data.symbol,
-    decimals: ft.data.decimals,
+    name: ft.name,
+    symbol: ft.symbol,
+    decimals: ft.decimals,
     totalSupply: supply,
     holderCount: holders.data.length < 25 ? holders.data.length : null,
     createdAtMs: created ? Number(BigInt(created) / 1_000_000n) : null,
     deployer,
-    deployerBalance: deployer ? await balance(deployer) : 0n,
+    deployerBalance,
     insiders,
     snapshotBlock: height,
   };

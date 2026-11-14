@@ -1,8 +1,8 @@
-import { Account, JsonRpcProvider } from "near-api-js";
-import { config } from "./config.js";
+import { Account } from "near-api-js";
+import { config, nearProvider } from "./config.js";
 
 const TGAS = 1_000_000_000_000n;
-export const provider = new JsonRpcProvider({ url: config.nearRpc });
+export const provider = nearProvider(config.network);
 const api = new Account(config.apiAccount, provider, config.apiKey);
 
 export function view<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {

@@ -2,12 +2,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import "dotenv/config";
+import { FailoverRpcProvider, JsonRpcProvider } from "near-api-js";
 
 export type Network = "testnet" | "mainnet";
 
 const DEFAULT_NEAR_RPC: Record<Network, string> = {
-  testnet: "https://rpc.testnet.near.org",
-  mainnet: "https://rpc.mainnet.near.org",
+  testnet: "https://test.rpc.fastnear.com",
+  mainnet: "https://free.rpc.fastnear.com",
 };
 
 /** Public RPCs for EVM payout chains; override with EVM_RPC_<CHAIN> (e.g. EVM_RPC_BASE_SEPOLIA). */
@@ -53,3 +54,17 @@ export const config = {
     return process.env[key] || DEFAULT_EVM_RPC[chain];
   },
 };
+
+// NEAR RPC with failover: public endpoints rate-limit, so rotate across several.
+// Override with NEAR_RPCS (comma-separated).
+const DEFAULT_NEAR_RPCS: Record<"testnet" | "mainnet", string[]> = {
+  testnet: ["https://test.rpc.fastnear.com", "https://near-testnet.drpc.org"],
+  mainnet: ["https://free.rpc.fastnear.com", "https://near.drpc.org"],
+};
+export function nearProvider(network: "testnet" | "mainnet"): FailoverRpcProvider {
+  const urls = (process.env.NEAR_RPCS ?? process.env.NEAR_RPC ?? DEFAULT_NEAR_RPCS[network].join(","))
+    .split(",")
+    .map((u) => u.trim())
+    .filter(Boolean);
+  return new FailoverRpcProvider(urls.map((url) => new JsonRpcProvider({ url }, { retries: 3, wait: 500, backoff: 2 })));
+}

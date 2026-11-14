@@ -57,7 +57,11 @@ export async function handleRailB(p: Payout): Promise<void> {
   if (p.status === "Signed") await broadcastAndConfirm(p, cfg);
 }
 
+/** chain -> last time its pool address had no gas (skip re-checking for a minute). */
+const noGasUntil = new Map<string, number>();
+
 async function broadcastAndConfirm(p: Payout, cfg: EvmChain): Promise<void> {
+  if ((noGasUntil.get(p.payout_chain) ?? 0) > Date.now()) return;
   const c = client(p.payout_chain);
   const hash = p.evm_tx_hash!;
 
@@ -68,6 +72,7 @@ async function broadcastAndConfirm(p: Payout, cfg: EvmChain): Promise<void> {
   const need = BigInt(cfg.gas_limit) * BigInt(cfg.max_fee_per_gas_cap);
   if (gasBal === 0n) {
     log(p.id, `pool address ${cfg.signer_address} on ${p.payout_chain} has 0 native gas — fund it to broadcast ${hash}`);
+    noGasUntil.set(p.payout_chain, Date.now() + 60_000);
     return;
   }
   if (gasBal < need) log(p.id, `warning: pool gas balance ${formatEther(gasBal)} may be low`);

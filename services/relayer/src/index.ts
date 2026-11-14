@@ -10,9 +10,12 @@ import { handleRailA } from "./railA.js";
 import { handleRailB } from "./railB.js";
 import { log } from "./log.js";
 
-type Rail = "A" | "B";
+type Rail = "A" | "B" | "N";
 
+let poolUsdc: string | undefined;
 async function chooseRail(p: Payout): Promise<Rail | null> {
+  poolUsdc ??= `nep141:${(await safu.getConfig()).usdc}`;
+  if (p.rail === "Near" || (p.rail === null && p.evm_nonce === null && p.payout_chain === "near" && p.payout_asset === poolUsdc)) return "N";
   if (p.rail === "Intents") return "A";
   if (p.rail === "ChainSig" || p.evm_nonce !== null) return "B";
   const canA = config.railAEnabled && p.payout_asset.length > 0;
@@ -36,7 +39,13 @@ async function tick() {
     }
     inFlight.add(p.id);
     try {
-      await (rail === "A" ? handleRailA(p) : handleRailB(p));
+      if (rail === "N") {
+        if (p.status === "Queued") {
+          const tx = await safu.requestPayoutNear(p.id);
+          const after = await safu.getPayout(p.id);
+          log(p.id, after?.status === "Paid" ? `PAID on NEAR to ${p.recipient} (tx ${tx})` : `NEAR transfer failed, re-queued (tx ${tx})`);
+        }
+      } else await (rail === "A" ? handleRailA(p) : handleRailB(p));
     } catch (e) {
       log(p.id, `error on rail ${rail}: ${(e as Error).message}`);
     } finally {

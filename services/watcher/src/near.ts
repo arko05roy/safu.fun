@@ -1,5 +1,5 @@
-import { Account, JsonRpcProvider } from "near-api-js";
-import { config } from "./config.js";
+import { Account } from "near-api-js";
+import { config, nearProvider } from "./config.js";
 
 export interface Holder {
   address: string;
@@ -34,7 +34,7 @@ export interface Report {
 }
 
 const TGAS = 1_000_000_000_000n;
-const provider = new JsonRpcProvider({ url: config.nearRpc });
+const provider = nearProvider(config.network);
 const watcher = new Account(config.watcherAccount, provider, config.watcherKey);
 
 function view<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {

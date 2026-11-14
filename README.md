@@ -14,8 +14,21 @@ Built on NEAR: Intents (1Click) for any-chain swaps and payouts, Chain Signature
 | Relayer (Rail A + Rail B) | `services/relayer` | ✅ |
 | Rug watcher (R1/R2, NEAR + EVM) | `services/watcher` | ✅ |
 | Demo NEP-141 memecoin | `contracts/demo-token` | ✅ |
+| End-to-end demo (PRD §8) | `scripts/demo` | ✅ ~3 min on testnet |
+| NEAR-direct payouts | `contracts/safu` | ✅ |
 | API (rug odds, watch snapshots, signed cover quotes, Intents buys) | `services/api` | ✅ |
 | Frontend (Next.js) | `web/` | ⏳ |
+
+## Run the demo
+
+```bash
+pnpm install
+(cd contracts/demo-token && cargo near build non-reproducible-wasm)
+pnpm --filter @safu/demo services   # terminal 1
+pnpm --filter @safu/demo demo       # terminal 2
+```
+
+See [scripts/demo/README.md](scripts/demo/README.md).
 
 ## Contract
 
@@ -33,7 +46,8 @@ cd contracts/safu && cargo near build non-reproducible-wasm   # -> target/near/s
 3. Before cover is sold, the API records a **token watch** on-chain (deployer + insiders with baseline balances, locked while cover is live). The allowlisted watcher re-reads those balances, and on R1/R2 calls `report_rug(token, rule, evidence)` with the dump tx hashes → dispute window.
 4. Anyone calls `finalize_rug(report_id)` after the window → payouts queued at 80% of cover (pro-rata if pool is short).
 5. **Rail A** — relayer calls `request_payout_intents(payout_id, quote, quote_signature)` with a live **1Click-signed quote**. The contract verifies the signature on-chain (`ed25519_verify` against the 1Click manager key) and that the quote pays this payout's amount/asset/recipient and refunds to the contract, then sends USDC to the deposit address in the quote → swapped to the user's asset on the user's chain → `mark_paid(payout_id, dest_tx_hash)`.
-6. **Rail B** — relayer calls `request_payout_signed(payout_id, max_fee_per_gas, max_priority_fee_per_gas)`. The **contract** builds the EIP-1559 `USDC.transfer(recipient, amount)` tx (chain id, token, recipient, amount and nonce are fixed by contract state; gas price is capped), asks `v1.signer` for an Ecdsa signature on path `pool-<chain>`, **ecrecovers it against the pool's derived address**, and stores the raw signed tx + its hash on the payout. Anyone can broadcast it; `mark_paid` only accepts that exact tx hash. Re-signing (gas bump) reuses the same nonce, so a payout can never land twice.
+6. **NEAR-direct** — payouts on NEAR in pool USDC: anyone calls `request_payout_near(payout_id)` and the contract sends USDC straight to the recipient.
+7. **Rail B** — relayer calls `request_payout_signed(payout_id, max_fee_per_gas, max_priority_fee_per_gas)`. The **contract** builds the EIP-1559 `USDC.transfer(recipient, amount)` tx (chain id, token, recipient, amount and nonce are fixed by contract state; gas price is capped), asks `v1.signer` for an Ecdsa signature on path `pool-<chain>`, **ecrecovers it against the pool's derived address**, and stores the raw signed tx + its hash on the payout. Anyone can broadcast it; `mark_paid` only accepts that exact tx hash. Re-signing (gas bump) reuses the same nonce, so a payout can never land twice.
 
 ### Testnet deployment
 

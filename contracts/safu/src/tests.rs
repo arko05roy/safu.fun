@@ -677,3 +677,54 @@ fn cover_only_requires_api_key() {
     let (q, s) = cq("valid");
     pay(&mut c, "eugene.near", 500_000, buy_msg(&q, &s), 2_000);
 }
+
+// ───────── NEAR-direct payouts ─────────
+
+fn near_payout_setup(recipient: &str, asset: &str) -> (Safu, u64) {
+    let mut c = setup(1_000 * USDC);
+    ctx(api(), 2_000);
+    watch(&mut c, "near", "coin.dev.testnet");
+    c.register_policy(
+        "near".into(), "coin.dev.testnet".into(), "near".into(), asset.into(), recipient.into(),
+        U128(10 * USDC), 500, "00".into(), "ref".into(), 10_000_000,
+    );
+    ctx(watcher(), 3_000);
+    let rid = c.report_rug("near".into(), "coin.dev.testnet".into(), "R1".into(), vec!["x".into()]);
+    ctx(accounts(4), 70_000);
+    let pid = c.finalize_rug(rid)[0];
+    (c, pid)
+}
+
+#[test]
+fn near_direct_payout_pays_and_settles() {
+    let (mut c, pid) = near_payout_setup("buyer.testnet", "nep141:usdc.test.near");
+    ctx(accounts(5), 80_000); // anyone can trigger
+    let _ = c.request_payout_near(pid);
+    assert_eq!(c.get_payout(pid).unwrap().status, PayoutStatus::Processing);
+    ctx_with_result("safu.test.near".parse().unwrap(), 80_001, near_sdk::PromiseResult::Successful(vec![]));
+    assert!(c.on_payout_near(pid));
+    let p = c.get_payout(pid).unwrap();
+    assert_eq!(p.status, PayoutStatus::Paid);
+    assert_eq!(p.rail, Some(PayoutRail::Near));
+    assert_eq!(c.pool_stats().reserved_usdc.0, 0);
+    assert_eq!(c.pool_stats().total_paid_out_usdc.0, 8 * USDC);
+    assert!(c.list_pending_payouts(None, None).is_empty());
+}
+
+#[test]
+fn near_direct_failed_transfer_requeues() {
+    let (mut c, pid) = near_payout_setup("buyer.testnet", "nep141:usdc.test.near");
+    ctx(accounts(5), 80_000);
+    let _ = c.request_payout_near(pid);
+    ctx_with_result("safu.test.near".parse().unwrap(), 80_001, near_sdk::PromiseResult::Failed);
+    assert!(!c.on_payout_near(pid));
+    assert_eq!(c.get_payout(pid).unwrap().status, PayoutStatus::Queued);
+    assert_eq!(c.pool_stats().reserved_usdc.0, 8 * USDC);
+}
+
+#[test]
+#[should_panic(expected = "NEAR-direct pays pool USDC only")]
+fn near_direct_rejects_other_assets() {
+    let (mut c, pid) = near_payout_setup("buyer.testnet", "nep141:wrap.near");
+    let _ = c.request_payout_near(pid);
+}

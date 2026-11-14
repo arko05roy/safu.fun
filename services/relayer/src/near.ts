@@ -1,5 +1,5 @@
-import { Account, JsonRpcProvider } from "near-api-js";
-import { config } from "./config.js";
+import { Account } from "near-api-js";
+import { config, nearProvider } from "./config.js";
 
 export type PayoutStatus = "Queued" | "Processing" | "Sent" | "Signed" | "Paid";
 
@@ -13,7 +13,7 @@ export interface Payout {
   payout_asset: string;
   recipient: string;
   status: PayoutStatus;
-  rail: "Intents" | "ChainSig" | null;
+  rail: "Intents" | "ChainSig" | "Near" | null;
   deposit_address: string | null;
   dest_tx_hash: string | null;
   evm_nonce: number | null;
@@ -38,7 +38,7 @@ export interface Config {
 
 const TGAS = 1_000_000_000_000n;
 
-export const provider = new JsonRpcProvider({ url: config.nearRpc });
+export const provider = nearProvider(config.network);
 const relayer = new Account(config.relayerAccount, provider, config.relayerKey);
 
 async function view<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -82,6 +82,17 @@ export const safu = {
       contractId: config.contract,
       methodName: "request_payout_intents",
       args: { payout_id: payoutId, quote, quote_signature: quoteSignature },
+      gas: 100n * TGAS,
+    });
+    return res.transaction.hash;
+  },
+
+  /** NEAR-direct: contract sends pool USDC to the NEAR recipient. Returns NEAR tx hash. */
+  async requestPayoutNear(payoutId: number): Promise<string> {
+    const res = await relayer.callFunctionRaw({
+      contractId: config.contract,
+      methodName: "request_payout_near",
+      args: { payout_id: payoutId },
       gas: 100n * TGAS,
     });
     return res.transaction.hash;

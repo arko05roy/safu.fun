@@ -1,0 +1,19 @@
+{
+  "name": "@safu/demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "services": "tsx services.ts",
+    "demo": "tsx demo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "near-api-js": "7.5.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

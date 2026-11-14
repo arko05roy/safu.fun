@@ -97,6 +97,8 @@ pub enum PayoutRail {
     Intents,
     /// Contract-signed tx from its Chain Signatures derived address.
     ChainSig,
+    /// Pool USDC sent straight to a NEAR account (payout_chain "near").
+    Near,
 }
 
 #[near(serializers = [borsh, json])]

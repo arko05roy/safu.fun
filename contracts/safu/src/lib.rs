@@ -894,6 +894,63 @@ impl Safu {
         }
     }
 
+    // ───────────────────────── payouts: NEAR direct ─────────────────────────
+
+    /// Payouts on NEAR in the pool's own USDC need no swap and no signature:
+    /// the contract sends USDC straight to the recipient account. Everything
+    /// is fixed by the payout record, so anyone may trigger it.
+    pub fn request_payout_near(&mut self, payout_id: u64) -> Promise {
+        let usdc_asset = format!("nep141:{}", self.usdc);
+        let p = self.payouts.get_mut(&payout_id).expect("no such payout");
+        require!(p.status == PayoutStatus::Queued, "payout not queued");
+        require!(p.evm_nonce.is_none() && p.rail.is_none(), "payout is bound to another rail");
+        require!(p.payout_chain == "near", "payout is not on NEAR");
+        require!(p.payout_asset == usdc_asset, "NEAR-direct pays pool USDC only");
+        let recipient: AccountId = p
+            .recipient
+            .parse()
+            .unwrap_or_else(|_| env::panic_str("recipient is not a NEAR account"));
+        p.status = PayoutStatus::Processing;
+        p.rail = Some(PayoutRail::Near);
+        let amount = p.amount_usdc;
+        emit("payout_processing", json!({ "payout_id": payout_id, "rail": "Near", "recipient": recipient }));
+
+        ext_ft::ext(self.usdc.clone())
+            .with_attached_deposit(USDC_STORAGE_DEPOSIT)
+            .with_static_gas(GAS_STORAGE_DEPOSIT)
+            .storage_deposit(Some(recipient.clone()), Some(true))
+            .then(
+                ext_ft::ext(self.usdc.clone())
+                    .with_attached_deposit(NearToken::from_yoctonear(1))
+                    .with_static_gas(GAS_FT_TRANSFER)
+                    .ft_transfer(recipient, amount, Some(format!("safu payout {payout_id}: rugged"))),
+            )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(GAS_CALLBACK)
+                    .on_payout_near(payout_id),
+            )
+    }
+
+    #[private]
+    pub fn on_payout_near(&mut self, payout_id: u64) -> bool {
+        let ok = env::promise_result_checked(0, 0).is_ok();
+        let p = self.payouts.get_mut(&payout_id).expect("payout");
+        if ok {
+            p.status = PayoutStatus::Paid;
+            let amount = p.amount_usdc.0;
+            self.pool_reserved -= amount;
+            self.total_paid_out += amount;
+            self.pending_payouts.remove(&payout_id);
+            emit("payout_paid", json!({ "payout_id": payout_id, "rail": "Near", "amount_usdc": U128(amount) }));
+        } else {
+            p.status = PayoutStatus::Queued;
+            p.rail = None;
+            emit("payout_retry", json!({ "payout_id": payout_id }));
+        }
+        ok
+    }
+
     /// Relayer confirms destination-chain delivery (1Click status SUCCESS tx hash).
     pub fn mark_paid(&mut self, payout_id: u64, dest_tx_hash: String) {
         self.assert_relayer();
