@@ -5,11 +5,14 @@
 //! - policy registration by the safu API (one policy per protected buy)
 //! - rug lifecycle: watcher `report_rug` -> dispute window -> `finalize_rug`
 //! - payout queue + Rail A (USDC -> 1Click deposit address -> any chain)
+//! - Rail B: the contract builds an EVM USDC transfer itself, gets it signed by
+//!   the NEAR MPC network (Chain Signatures), ecrecover-verifies it and stores
+//!   the raw tx for anyone to broadcast
 //!
-//! Rail B (Chain Signatures signed payouts), $SAFU staking and UNO REVERSE
-//! launches land in later phases.
+//! $SAFU staking and UNO REVERSE launches land in later phases.
 
 mod events;
+mod evm;
 mod types;
 
 #[cfg(test)]
@@ -29,6 +32,10 @@ use near_sdk::{
 const GAS_FT_TRANSFER: Gas = Gas::from_tgas(10);
 const GAS_STORAGE_DEPOSIT: Gas = Gas::from_tgas(10);
 const GAS_CALLBACK: Gas = Gas::from_tgas(10);
+const GAS_MPC_SIGN: Gas = Gas::from_tgas(50);
+const GAS_SIGN_CALLBACK: Gas = Gas::from_tgas(30);
+/// Chain Signatures domain 0 = secp256k1 (Ecdsa).
+const DOMAIN_ECDSA: u32 = 0;
 /// NEP-145 registration cost for the NEAR USDC contract (0.00125 NEAR).
 const USDC_STORAGE_DEPOSIT: NearToken = NearToken::from_yoctonear(1_250_000_000_000_000_000_000);
 
@@ -37,6 +44,12 @@ const USDC_STORAGE_DEPOSIT: NearToken = NearToken::from_yoctonear(1_250_000_000_
 trait FungibleToken {
     fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>);
     fn storage_deposit(&mut self, account_id: Option<AccountId>, registration_only: Option<bool>);
+}
+
+#[ext_contract(ext_mpc)]
+#[allow(dead_code)]
+trait MpcSigner {
+    fn sign(&mut self, request: near_sdk::serde_json::Value);
 }
 
 #[near(contract_state)]
@@ -78,6 +91,11 @@ pub struct Safu {
     next_payout_id: u64,
     /// Payouts in Queued/Processing/Sent state (relayer work list).
     pending_payouts: IterableSet<u64>,
+
+    /// Chain Signatures MPC contract (`v1.signer` / `v1.signer-prod.testnet`).
+    mpc_signer: AccountId,
+    /// Rail B EVM chains, keyed by payout_chain id (e.g. "base-sepolia").
+    evm_chains: LookupMap<String, EvmChain>,
 }
 
 #[near]
@@ -89,6 +107,7 @@ impl Safu {
         api: AccountId,
         dispute_window_ms: u64,
         waiting_period_ms: u64,
+        mpc_signer: AccountId,
     ) -> Self {
         Self {
             owner,
@@ -115,6 +134,8 @@ impl Safu {
             payouts: LookupMap::new(b"P"),
             next_payout_id: 0,
             pending_payouts: IterableSet::new(b"q"),
+            mpc_signer,
+            evm_chains: LookupMap::new(b"c"),
         }
     }
 
@@ -430,6 +451,9 @@ impl Safu {
                 rail: None,
                 deposit_address: None,
                 dest_tx_hash: None,
+                evm_nonce: None,
+                signed_tx: None,
+                evm_tx_hash: None,
             };
             emit("payout_queued", json!(payout));
             self.payouts.insert(pid, payout);
@@ -464,6 +488,7 @@ impl Safu {
         self.assert_relayer();
         let p = self.payouts.get_mut(&payout_id).expect("no such payout");
         require!(p.status == PayoutStatus::Queued, "payout not queued");
+        require!(p.evm_nonce.is_none(), "payout is bound to Rail B");
         p.status = PayoutStatus::Processing;
         p.rail = Some(PayoutRail::Intents);
         p.deposit_address = Some(deposit_address.clone());
@@ -510,11 +535,206 @@ impl Safu {
         ok
     }
 
+// ───────────────────────── payouts: Rail B (Chain Signatures, EVM) ─────────────────────────
+
+    /// Owner registers / updates an EVM payout chain. `next_nonce` must equal the
+    /// pool address's current on-chain nonce when first configured.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_evm_chain(
+        &mut self,
+        chain: String,
+        chain_id: u64,
+        usdc: String,
+        signer_address: String,
+        next_nonce: u64,
+        gas_limit: u64,
+        max_fee_per_gas_cap: U128,
+    ) {
+        self.assert_owner();
+        require!(evm::parse_address(&usdc).is_some(), "bad usdc address");
+        require!(evm::parse_address(&signer_address).is_some(), "bad signer address");
+        let float_usdc = self
+            .evm_chains
+            .get(&chain)
+            .map(|c| c.float_usdc)
+            .unwrap_or(U128(0));
+        let cfg = EvmChain {
+            chain_id,
+            usdc: usdc.to_lowercase(),
+            signer_address: signer_address.to_lowercase(),
+            next_nonce,
+            gas_limit,
+            max_fee_per_gas_cap,
+            float_usdc,
+        };
+        emit("evm_chain_set", json!({ "chain": chain, "config": cfg }));
+        self.evm_chains.insert(chain, cfg);
+    }
+
+    /// Owner records USDC it has placed on the chain's pool address.
+    pub fn add_chain_float(&mut self, chain: String, amount: U128) {
+        self.assert_owner();
+        let c = self.evm_chains.get_mut(&chain).expect("unknown evm chain");
+        c.float_usdc = U128(c.float_usdc.0 + amount.0);
+    }
+
+    /// Relayer asks the contract to build + sign the payout tx. The contract
+    /// fixes recipient, token, amount, chain id and nonce; the relayer only
+    /// picks gas prices (capped). Calling again on a `Signed` payout re-signs
+    /// with the *same nonce* (gas bump) — only one of them can ever be mined.
+    pub fn request_payout_signed(
+        &mut self,
+        payout_id: u64,
+        max_fee_per_gas: U128,
+        max_priority_fee_per_gas: U128,
+    ) -> Promise {
+        self.assert_relayer();
+        let p = self.payouts.get(&payout_id).expect("no such payout").clone();
+        require!(
+            matches!(p.status, PayoutStatus::Queued | PayoutStatus::Signed),
+            "payout not queued/signed"
+        );
+        require!(p.rail != Some(PayoutRail::Intents), "payout is bound to Rail A");
+        require!(
+            max_priority_fee_per_gas.0 <= max_fee_per_gas.0,
+            "priority fee above max fee"
+        );
+        let chain = self
+            .evm_chains
+            .get_mut(&p.payout_chain)
+            .unwrap_or_else(|| env::panic_str("payout chain has no Rail B config"));
+        require!(
+            max_fee_per_gas.0 <= chain.max_fee_per_gas_cap.0,
+            "max fee above cap"
+        );
+        require!(
+            evm::parse_address(&p.recipient).is_some(),
+            "recipient is not an EVM address"
+        );
+
+        let nonce = match p.evm_nonce {
+            Some(n) => n,
+            None => {
+                require!(chain.float_usdc.0 >= p.amount_usdc.0, "insufficient chain float");
+                chain.float_usdc = U128(chain.float_usdc.0 - p.amount_usdc.0);
+                let n = chain.next_nonce;
+                chain.next_nonce += 1;
+                n
+            }
+        };
+        let tx = Self::build_evm_tx(chain, &p, nonce, max_fee_per_gas.0, max_priority_fee_per_gas.0);
+        let hash = tx.signing_hash();
+
+        let pm = self.payouts.get_mut(&payout_id).expect("payout");
+        pm.evm_nonce = Some(nonce);
+        pm.rail = Some(PayoutRail::ChainSig);
+        pm.status = PayoutStatus::Processing;
+        emit(
+            "payout_processing",
+            json!({ "payout_id": payout_id, "rail": "ChainSig", "nonce": nonce, "payload": evm::hex_encode(&hash) }),
+        );
+
+        ext_mpc::ext(self.mpc_signer.clone())
+            .with_attached_deposit(NearToken::from_yoctonear(1))
+            .with_static_gas(GAS_MPC_SIGN)
+            .sign(json!({
+                "path": format!("pool-{}", p.payout_chain),
+                "payload_v2": { "Ecdsa": evm::hex_encode(&hash) },
+                "domain_id": DOMAIN_ECDSA,
+            }))
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(GAS_SIGN_CALLBACK)
+                    .on_payout_signed(payout_id, nonce, max_fee_per_gas, max_priority_fee_per_gas),
+            )
+    }
+
+    #[private]
+    pub fn on_payout_signed(
+        &mut self,
+        payout_id: u64,
+        nonce: u64,
+        max_fee_per_gas: U128,
+        max_priority_fee_per_gas: U128,
+    ) -> bool {
+        let p = self.payouts.get(&payout_id).expect("payout").clone();
+        let chain = self.evm_chains.get(&p.payout_chain).expect("chain").clone();
+        let tx = Self::build_evm_tx(&chain, &p, nonce, max_fee_per_gas.0, max_priority_fee_per_gas.0);
+        let hash = tx.signing_hash();
+
+        let signed = env::promise_result_checked(0, 2048)
+            .ok()
+            .and_then(|raw| parse_mpc_ecdsa(&raw))
+            .filter(|(r, s, v)| {
+                evm::recover_address(&hash, r, s, *v).map(|a| evm::hex_encode(&a))
+                    == chain.signer_address.strip_prefix("0x").map(str::to_string)
+            });
+
+        let first_sign = p.signed_tx.is_none();
+        let pm = self.payouts.get_mut(&payout_id).expect("payout");
+        match signed {
+            Some((r, s, v)) => {
+                let raw = tx.signed_bytes(v, &r, &s);
+                let tx_hash = env::keccak256_array(&raw);
+                pm.signed_tx = Some(format!("0x{}", evm::hex_encode(&raw)));
+                pm.evm_tx_hash = Some(format!("0x{}", evm::hex_encode(&tx_hash)));
+                pm.status = PayoutStatus::Signed;
+                let amount = pm.amount_usdc.0;
+                let ev = json!({
+                    "payout_id": payout_id,
+                    "chain": pm.payout_chain,
+                    "nonce": nonce,
+                    "evm_tx_hash": pm.evm_tx_hash,
+                    "signed_tx": pm.signed_tx,
+                });
+                if first_sign {
+                    self.pool_reserved -= amount;
+                    self.total_paid_out += amount;
+                }
+                emit("payout_signed", ev);
+                true
+            }
+            None => {
+                // Keep the nonce bound to this payout; a retry re-signs the same nonce.
+                pm.status = if first_sign { PayoutStatus::Queued } else { PayoutStatus::Signed };
+                emit("payout_sign_failed", json!({ "payout_id": payout_id, "nonce": nonce }));
+                false
+            }
+        }
+    }
+
+    fn build_evm_tx(
+        chain: &EvmChain,
+        p: &Payout,
+        nonce: u64,
+        max_fee_per_gas: u128,
+        max_priority_fee_per_gas: u128,
+    ) -> evm::Eip1559Tx {
+        let recipient = evm::parse_address(&p.recipient).expect("recipient");
+        evm::Eip1559Tx {
+            chain_id: chain.chain_id,
+            nonce,
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+            gas_limit: chain.gas_limit,
+            to: evm::parse_address(&chain.usdc).expect("usdc"),
+            value: 0,
+            data: evm::erc20_transfer_data(&recipient, p.amount_usdc.0),
+        }
+    }
+
     /// Relayer confirms destination-chain delivery (1Click status SUCCESS tx hash).
     pub fn mark_paid(&mut self, payout_id: u64, dest_tx_hash: String) {
         self.assert_relayer();
         let p = self.payouts.get_mut(&payout_id).expect("no such payout");
-        require!(p.status == PayoutStatus::Sent, "payout not sent");
+        match p.status {
+            PayoutStatus::Sent => {}
+            PayoutStatus::Signed => require!(
+                p.evm_tx_hash.as_deref().map(|h| h.eq_ignore_ascii_case(&dest_tx_hash)) == Some(true),
+                "tx hash does not match the signed payout tx"
+            ),
+            _ => env::panic_str("payout not sent/signed"),
+        }
         p.status = PayoutStatus::Paid;
         p.dest_tx_hash = Some(dest_tx_hash.clone());
         self.pending_payouts.remove(&payout_id);
@@ -537,6 +757,7 @@ impl Safu {
             waiting_period_ms: self.waiting_period_ms,
             deductible_bps: self.deductible_bps,
             max_token_exposure_bps: self.max_token_exposure_bps,
+            mpc_signer: self.mpc_signer.clone(),
         }
     }
 
@@ -558,6 +779,10 @@ impl Safu {
 
     pub fn get_report(&self, report_id: u64) -> Option<Report> {
         self.reports.get(&report_id).cloned()
+    }
+
+    pub fn get_evm_chain(&self, chain: String) -> Option<EvmChain> {
+        self.evm_chains.get(&chain).cloned()
     }
 
     pub fn get_payout(&self, payout_id: u64) -> Option<Payout> {
@@ -598,4 +823,19 @@ impl Safu {
             "relayer only"
         );
     }
+}
+
+/// Parse the MPC `sign` response for secp256k1:
+/// `{"scheme":"Secp256k1","big_r":{"affine_point":"02…"},"s":{"scalar":"…"},"recovery_id":0}`
+/// Returns (r, s, y_parity).
+fn parse_mpc_ecdsa(raw: &[u8]) -> Option<([u8; 32], [u8; 32], u8)> {
+    let v: near_sdk::serde_json::Value = near_sdk::serde_json::from_slice(raw).ok()?;
+    let big_r = evm::hex_decode(&v["big_r"]["affine_point"].as_str()?.to_lowercase())?;
+    let s = evm::hex_decode(&v["s"]["scalar"].as_str()?.to_lowercase())?;
+    let rid = v["recovery_id"].as_u64()?;
+    if big_r.len() != 33 || s.len() != 32 || rid > 1 {
+        return None;
+    }
+    let r: [u8; 32] = big_r[1..].try_into().ok()?;
+    Some((r, s.try_into().ok()?, rid as u8))
 }

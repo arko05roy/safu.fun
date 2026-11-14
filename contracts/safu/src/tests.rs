@@ -20,6 +20,9 @@ fn watcher() -> AccountId {
 fn relayer() -> AccountId {
     accounts(3)
 }
+fn mpc() -> AccountId {
+    "v1.signer-prod.testnet".parse().unwrap()
+}
 
 fn ctx(predecessor: AccountId, now_ms: u64) {
     let mut b = VMContextBuilder::new();
@@ -31,7 +34,7 @@ fn ctx(predecessor: AccountId, now_ms: u64) {
 
 fn setup(pool: u128) -> Safu {
     ctx(owner(), 1_000);
-    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 0);
+    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 0, mpc());
     c.add_watcher(watcher());
     c.add_relayer(relayer());
     if pool > 0 {
@@ -186,7 +189,7 @@ fn upheld_dispute_finalizes_immediately() {
 #[test]
 fn waiting_period_excludes_fresh_policies() {
     ctx(owner(), 1_000);
-    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 600_000); // 10 min wait
+    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 600_000, mpc()); // 10 min wait
     c.add_watcher(watcher());
     ctx(usdc(), 1_000);
     let _ = c.ft_on_transfer(owner(), U128(1_000 * USDC), "fund".into());
@@ -233,4 +236,160 @@ fn only_relayer_requests_payout() {
     ctx(accounts(4), 70_000);
     let ids = c.finalize_rug(rid);
     let _ = c.request_payout_intents(ids[0], "abc.near".parse().unwrap());
+}
+
+// ───────── Rail B ─────────
+// Same reference vector as evm::tests (viem 2.21, key 0x4c0883a6…f362318 →
+// 0x2c7536E3605D9C16a7a3D7b1898e529396a65c23 plays the MPC-derived pool address).
+const REF_R: &str = "b72a6fad9a0217e3fc59b17d4f21daf25942c1f5a8ff7bcf8f431e03397500dc";
+const REF_S: &str = "79b1f1de3440b50fb4d4e694b731a26f5510348e9c2174f990b11f24ba90ac61";
+const REF_SIGNED: &str = "0x02f8b283014a3407830f424084b2d05e00830186a094036cbd53842c5426634e7929541ec2318f3dcf7e80b844a9059cbb00000000000000000000000000000000000000000000000000000000000b0b010000000000000000000000000000000000000000000000000000000002625a00c001a0b72a6fad9a0217e3fc59b17d4f21daf25942c1f5a8ff7bcf8f431e03397500dca079b1f1de3440b50fb4d4e694b731a26f5510348e9c2174f990b11f24ba90ac61";
+
+fn ctx_with_result(predecessor: AccountId, now_ms: u64, result: near_sdk::PromiseResult) {
+    let mut b = VMContextBuilder::new();
+    b.current_account_id("safu.test.near".parse().unwrap())
+        .predecessor_account_id(predecessor)
+        .block_timestamp(now_ms * MS);
+    testing_env!(
+        b.build(),
+        near_sdk::test_vm_config(),
+        near_sdk::RuntimeFeesConfig::test(),
+        Default::default(),
+        vec![result]
+    );
+}
+
+/// Pool with one rugged policy paying 40 USDC to 0x…0b0b01 on base-sepolia.
+fn railb_setup() -> (Safu, u64) {
+    let mut c = setup(1_000 * USDC);
+    ctx(owner(), 1_500);
+    c.set_evm_chain(
+        "base-sepolia".into(),
+        84532,
+        "0x036CbD53842c5426634e7929541eC2318f3dCF7e".into(),
+        "0x2c7536E3605D9C16a7a3D7b1898e529396a65c23".into(),
+        7,
+        100_000,
+        U128(10_000_000_000),
+    );
+    c.add_chain_float("base-sepolia".into(), U128(100 * USDC));
+    ctx(api(), 2_000);
+    c.register_policy(
+        "base-sepolia".into(), "0xABCdef0000000000000000000000000000000001".into(),
+        "base-sepolia".into(), "nep141:base.omft.near".into(),
+        "0x00000000000000000000000000000000000b0b01".into(), U128(50 * USDC), 500,
+        "00".into(), "ref".into(), 10_000_000,
+    );
+    let rid = report(&mut c, 3_000);
+    ctx(accounts(4), 70_000);
+    let pid = c.finalize_rug(rid)[0];
+    (c, pid)
+}
+
+fn mpc_response(r: &str, s: &str, rid: u8) -> Vec<u8> {
+    format!(r#"{{"scheme":"Secp256k1","big_r":{{"affine_point":"03{r}"}},"s":{{"scalar":"{s}"}},"recovery_id":{rid}}}"#).into_bytes()
+}
+
+#[test]
+fn rail_b_builds_signs_and_stores_raw_tx() {
+    let (mut c, pid) = railb_setup();
+    ctx(relayer(), 80_000);
+    let _ = c.request_payout_signed(pid, U128(3_000_000_000), U128(1_000_000));
+    let p = c.get_payout(pid).unwrap();
+    assert_eq!(p.status, PayoutStatus::Processing);
+    assert_eq!(p.evm_nonce, Some(7));
+    assert_eq!(c.get_evm_chain("base-sepolia".into()).unwrap().next_nonce, 8);
+    assert_eq!(c.get_evm_chain("base-sepolia".into()).unwrap().float_usdc.0, 60 * USDC);
+
+    ctx_with_result(
+        "safu.test.near".parse().unwrap(),
+        80_001,
+        near_sdk::PromiseResult::Successful(mpc_response(REF_R, REF_S, 1)),
+    );
+    assert!(c.on_payout_signed(pid, 7, U128(3_000_000_000), U128(1_000_000)));
+    let p = c.get_payout(pid).unwrap();
+    assert_eq!(p.status, PayoutStatus::Signed);
+    assert_eq!(p.signed_tx.as_deref(), Some(REF_SIGNED));
+    let s = c.pool_stats();
+    assert_eq!(s.reserved_usdc.0, 0);
+    assert_eq!(s.total_paid_out_usdc.0, 40 * USDC);
+
+    // relayer can only confirm the exact tx the contract signed
+    ctx(relayer(), 90_000);
+    let h = p.evm_tx_hash.unwrap();
+    c.mark_paid(pid, h.to_uppercase().replace("0X", "0x"));
+    assert_eq!(c.get_payout(pid).unwrap().status, PayoutStatus::Paid);
+    assert!(c.list_pending_payouts(None, None).is_empty());
+}
+
+#[test]
+fn rail_b_rejects_signature_from_wrong_key() {
+    let (mut c, pid) = railb_setup();
+    ctx(relayer(), 80_000);
+    let _ = c.request_payout_signed(pid, U128(3_000_000_000), U128(1_000_000));
+    // valid-looking but wrong recovery id -> recovers a different address
+    ctx_with_result(
+        "safu.test.near".parse().unwrap(),
+        80_001,
+        near_sdk::PromiseResult::Successful(mpc_response(REF_R, REF_S, 0)),
+    );
+    assert!(!c.on_payout_signed(pid, 7, U128(3_000_000_000), U128(1_000_000)));
+    let p = c.get_payout(pid).unwrap();
+    assert_eq!(p.status, PayoutStatus::Queued);
+    assert_eq!(p.evm_nonce, Some(7)); // nonce stays bound to this payout
+    assert!(p.signed_tx.is_none());
+    assert_eq!(c.pool_stats().reserved_usdc.0, 40 * USDC);
+
+    // retry reuses nonce 7 and does not consume float again
+    ctx(relayer(), 81_000);
+    let _ = c.request_payout_signed(pid, U128(3_000_000_000), U128(1_000_000));
+    let ch = c.get_evm_chain("base-sepolia".into()).unwrap();
+    assert_eq!(ch.next_nonce, 8);
+    assert_eq!(ch.float_usdc.0, 60 * USDC);
+}
+
+#[test]
+fn rail_b_failed_mpc_call_requeues() {
+    let (mut c, pid) = railb_setup();
+    ctx(relayer(), 80_000);
+    let _ = c.request_payout_signed(pid, U128(3_000_000_000), U128(1_000_000));
+    ctx_with_result("safu.test.near".parse().unwrap(), 80_001, near_sdk::PromiseResult::Failed);
+    assert!(!c.on_payout_signed(pid, 7, U128(3_000_000_000), U128(1_000_000)));
+    assert_eq!(c.get_payout(pid).unwrap().status, PayoutStatus::Queued);
+}
+
+#[test]
+#[should_panic(expected = "max fee above cap")]
+fn rail_b_gas_price_is_capped() {
+    let (mut c, pid) = railb_setup();
+    ctx(relayer(), 80_000);
+    let _ = c.request_payout_signed(pid, U128(10_000_000_001), U128(1));
+}
+
+#[test]
+#[should_panic(expected = "tx hash does not match the signed payout tx")]
+fn rail_b_mark_paid_requires_matching_hash() {
+    let (mut c, pid) = railb_setup();
+    ctx(relayer(), 80_000);
+    let _ = c.request_payout_signed(pid, U128(3_000_000_000), U128(1_000_000));
+    ctx_with_result(
+        "safu.test.near".parse().unwrap(),
+        80_001,
+        near_sdk::PromiseResult::Successful(mpc_response(REF_R, REF_S, 1)),
+    );
+    c.on_payout_signed(pid, 7, U128(3_000_000_000), U128(1_000_000));
+    ctx(relayer(), 90_000);
+    c.mark_paid(pid, "0xdeadbeef".into());
+}
+
+#[test]
+#[should_panic(expected = "payout is bound to Rail B")]
+fn rail_a_blocked_after_rail_b_nonce() {
+    let (mut c, pid) = railb_setup();
+    ctx(relayer(), 80_000);
+    let _ = c.request_payout_signed(pid, U128(3_000_000_000), U128(1_000_000));
+    ctx_with_result("safu.test.near".parse().unwrap(), 80_001, near_sdk::PromiseResult::Failed);
+    c.on_payout_signed(pid, 7, U128(3_000_000_000), U128(1_000_000));
+    ctx(relayer(), 81_000);
+    let _ = c.request_payout_intents(pid, "abc.near".parse().unwrap());
 }

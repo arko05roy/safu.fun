@@ -107,6 +107,8 @@ pub enum PayoutStatus {
     Processing,
     /// Rail A: USDC delivered to the 1Click deposit address.
     Sent,
+    /// Rail B: MPC-signed raw tx stored on the payout, ready to broadcast.
+    Signed,
     /// Destination-chain delivery confirmed by the relayer.
     Paid,
 }
@@ -127,6 +129,33 @@ pub struct Payout {
     pub deposit_address: Option<AccountId>,
     /// Destination-chain tx hash, set by `mark_paid`.
     pub dest_tx_hash: Option<String>,
+    /// Rail B: nonce of the pool address assigned to this payout (fixed on first
+    /// sign, reused on gas-bump re-signs, so at most one tx can ever land).
+    pub evm_nonce: Option<u64>,
+    /// Rail B: `0x`-hex signed EIP-1559 tx for `eth_sendRawTransaction`.
+    pub signed_tx: Option<String>,
+    /// Rail B: keccak256 of `signed_tx` — the EVM tx hash.
+    pub evm_tx_hash: Option<String>,
+}
+
+/// Rail B config for one EVM chain. The pool pays from
+/// `derived_address(contract, "pool-<chain>")` in that chain's USDC.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug)]
+pub struct EvmChain {
+    pub chain_id: u64,
+    /// ERC-20 USDC on that chain (`0x…`).
+    pub usdc: String,
+    /// Chain Signatures address for path `pool-<chain>` (`0x…`). Every MPC
+    /// signature is ecrecover-checked against it before a tx is stored.
+    pub signer_address: String,
+    pub next_nonce: u64,
+    pub gas_limit: u64,
+    /// Upper bound on `max_fee_per_gas` a relayer may request (wei).
+    pub max_fee_per_gas_cap: U128,
+    /// USDC float the owner has placed on `signer_address` (6 decimals).
+    /// Rail B payouts are limited by it.
+    pub float_usdc: U128,
 }
 
 #[near(serializers = [json])]
@@ -140,6 +169,7 @@ pub struct Config {
     pub waiting_period_ms: u64,
     pub deductible_bps: u16,
     pub max_token_exposure_bps: u16,
+    pub mpc_signer: AccountId,
 }
 
 #[near(serializers = [json])]
