@@ -576,3 +576,104 @@ fn heartbeat_is_watcher_only() {
     ctx(accounts(4), 2_000);
     c.heartbeat();
 }
+
+// ───────── cover-only purchases (API-signed quotes) ─────────
+const COVER_QUOTES: &str = include_str!("testdata/cover_quotes.json");
+
+fn cq(name: &str) -> (String, String) {
+    let v: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(COVER_QUOTES).unwrap();
+    (v[name]["quote"].as_str().unwrap().into(), v[name]["signature"].as_str().unwrap().into())
+}
+
+fn buy_msg(quote: &str, sig: &str) -> String {
+    near_sdk::serde_json::json!({ "buy_cover": { "quote": quote, "signature": sig } }).to_string()
+}
+
+/// Pool + watch on the quoted token + API key configured.
+fn cover_setup() -> Safu {
+    let mut c = setup(1_000 * USDC);
+    ctx(api(), 1_500);
+    watch(&mut c, "base-sepolia", "0xABCdef0000000000000000000000000000000001");
+    ctx(owner(), 1_500);
+    let v: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(COVER_QUOTES).unwrap();
+    c.set_api_pubkey(v["pubkey"].as_str().unwrap().into());
+    c
+}
+
+fn pay(c: &mut Safu, payer: &str, amount: u128, msg: String, now_ms: u64) {
+    ctx(usdc(), now_ms);
+    let _ = c.ft_on_transfer(payer.parse().unwrap(), U128(amount), msg);
+}
+
+#[test]
+fn cover_only_purchase_creates_policy_and_books_premium() {
+    let mut c = cover_setup();
+    let (q, s) = cq("valid");
+    pay(&mut c, "eugene.near", 500_000, buy_msg(&q, &s), 2_000);
+    let p = c.get_policy(0).unwrap();
+    assert_eq!(p.cover_usdc.0, 10 * USDC);
+    assert_eq!(p.recipient, "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin");
+    assert_eq!(p.buy_ref, "cover-only:n1");
+    assert_eq!(p.insiders_root.len(), 64); // sha256 of the watch it was priced on
+    let s = c.pool_stats();
+    assert_eq!(s.available_usdc.0, 1_000 * USDC + 500_000);
+    assert_eq!(s.premiums_earned_usdc.0, 500_000);
+}
+
+#[test]
+#[should_panic(expected = "invalid api quote signature")]
+fn cover_only_rejects_tampered_quote() {
+    let mut c = cover_setup();
+    let (q, s) = cq("valid");
+    let tampered = q.replace("\"cover_usdc\":\"10000000\"", "\"cover_usdc\":\"90000000\"");
+    pay(&mut c, "eugene.near", 500_000, buy_msg(&tampered, &s), 2_000);
+}
+
+#[test]
+#[should_panic(expected = "paid amount != quoted premium")]
+fn cover_only_rejects_underpayment() {
+    let mut c = cover_setup();
+    let (q, s) = cq("valid");
+    pay(&mut c, "eugene.near", 499_999, buy_msg(&q, &s), 2_000);
+}
+
+#[test]
+#[should_panic(expected = "quote already used")]
+fn cover_only_rejects_replay() {
+    let mut c = cover_setup();
+    let (q, s) = cq("valid");
+    pay(&mut c, "eugene.near", 500_000, buy_msg(&q, &s), 2_000);
+    pay(&mut c, "eugene.near", 500_000, buy_msg(&q, &s), 2_100);
+}
+
+#[test]
+#[should_panic(expected = "quote is for another payer")]
+fn cover_only_binds_payer() {
+    let mut c = cover_setup();
+    let (q, s) = cq("valid");
+    pay(&mut c, "mallory.near", 500_000, buy_msg(&q, &s), 2_000);
+}
+
+#[test]
+#[should_panic(expected = "quote expired")]
+fn cover_only_rejects_expired_quote() {
+    let mut c = cover_setup();
+    let (q, s) = cq("valid");
+    pay(&mut c, "eugene.near", 500_000, buy_msg(&q, &s), 5_000);
+}
+
+#[test]
+#[should_panic(expected = "premium inconsistent with cover and rate")]
+fn cover_only_rejects_inconsistent_premium_even_if_signed() {
+    let mut c = cover_setup();
+    let (q, s) = cq("bad_rate");
+    pay(&mut c, "eugene.near", 400_000, buy_msg(&q, &s), 2_000);
+}
+
+#[test]
+#[should_panic(expected = "cover-only sales disabled")]
+fn cover_only_requires_api_key() {
+    let mut c = setup(1_000 * USDC);
+    let (q, s) = cq("valid");
+    pay(&mut c, "eugene.near", 500_000, buy_msg(&q, &s), 2_000);
+}

@@ -1,0 +1,12 @@
+{
+  "source": "tweetnacl ed25519, seed = 32 bytes of 0x07 (test key only)",
+  "pubkey": "ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB",
+  "valid": {
+    "quote": "{\"contract\":\"safu.test.near\",\"payer\":\"eugene.near\",\"token_chain\":\"base-sepolia\",\"token_addr\":\"0xABCdef0000000000000000000000000000000001\",\"payout_chain\":\"sol\",\"payout_asset\":\"nep141:sol.omft.near\",\"recipient\":\"9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin\",\"cover_usdc\":\"10000000\",\"premium_bps\":500,\"premium_usdc\":\"500000\",\"expires_at_ms\":10000000,\"quote_expires_at_ms\":5000,\"nonce\":\"n1\"}",
+    "signature": "ed25519:4AePqJ7oeTZsVm3qCqpfCfMBzY4mfTMCAf9wKs87M42MC7NXt4aFTEPqL11kTDuZXAitnaixpkY8HrruyBS4bZDj"
+  },
+  "bad_rate": {
+    "quote": "{\"contract\":\"safu.test.near\",\"payer\":\"eugene.near\",\"token_chain\":\"base-sepolia\",\"token_addr\":\"0xABCdef0000000000000000000000000000000001\",\"payout_chain\":\"sol\",\"payout_asset\":\"nep141:sol.omft.near\",\"recipient\":\"9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin\",\"cover_usdc\":\"10000000\",\"premium_bps\":500,\"premium_usdc\":\"400000\",\"expires_at_ms\":10000000,\"quote_expires_at_ms\":5000,\"nonce\":\"n1\"}",
+    "signature": "ed25519:4xU2bTwPPYCgZCc7utT6tXGCebFV7QGmj4Nzm6dVxbBHZD1UqdEvPUn5Mm4dFoSt3tFsgoEdXcptoBf5jqj58wXJ"
+  }
+}

@@ -74,17 +74,39 @@
       "init": "migrate_v4",
       "tx": "CDq5e6CaiGKz9kHzS92E2NxaZRfYjrhmntSscctCnmhz",
       "change": "token watches, active token list, watcher heartbeat; state preserved"
+    },
+    {
+      "date": "2026-11-14",
+      "to": "v0.5",
+      "init": "migrate_v5",
+      "tx": "24hhnKNhNqx2hr4x2nf7oDW762FUfwYoQrKL9PkM6n5F",
+      "change": "API-signed cover-only purchases via ft_transfer_call; api_pubkey set; state preserved"
     }
   ],
-  "demo_token": {
-    "chain": "near",
-    "token": "rugme.safudemo-81cf1a.testnet",
-    "symbol": "RUGME",
-    "deployer": "safudemo-81cf1a.testnet",
-    "insiders": [
-      "insider1.safudemo-81cf1a.testnet",
-      "insider2.safudemo-81cf1a.testnet"
-    ],
-    "sink": "dex.safudemo-81cf1a.testnet"
-  }
+  "api_quote_pubkey": "ed25519:4ikNBxWheAYfb1UpGVRFxQVbikewht9xqYMDYimRz8kg",
+  "demo_tokens": [
+    {
+      "chain": "near",
+      "token": "rugme.safudemo-81cf1a.testnet",
+      "symbol": "RUGME",
+      "deployer": "safudemo-81cf1a.testnet",
+      "insiders": [
+        "insider1.safudemo-81cf1a.testnet",
+        "insider2.safudemo-81cf1a.testnet"
+      ],
+      "sink": "dex.safudemo-81cf1a.testnet"
+    },
+    {
+      "chain": "near",
+      "token": "moon.safudemo-81cf1a.testnet",
+      "symbol": "MOON",
+      "deployer": "safudemo-81cf1a.testnet",
+      "insiders": [
+        "insider1.safudemo-81cf1a.testnet",
+        "insider2.safudemo-81cf1a.testnet"
+      ],
+      "buyer": "buyer.safudemo-81cf1a.testnet",
+      "note": "watch registered by API on first /cover/quote"
+    }
+  ]
 }

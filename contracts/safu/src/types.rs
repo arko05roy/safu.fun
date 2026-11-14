@@ -172,6 +172,7 @@ pub struct Config {
     pub mpc_signer: AccountId,
     pub oneclick_pubkey: String,
     pub max_slippage_bps: u16,
+    pub api_pubkey: Option<String>,
 }
 
 #[near(serializers = [json])]
@@ -221,4 +222,30 @@ pub struct WatchedToken {
     pub active_policies: u32,
     pub exposure_usdc: U128,
     pub open_report_id: Option<u64>,
+}
+
+/// Cover-only quote, signed by the safu API (ed25519 over the exact JSON
+/// bytes). Paid for with `ft_transfer_call` on the pool USDC, msg =
+/// `{"buy_cover":{"quote":"<this JSON as a string>","signature":"ed25519:…"}}`.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct CoverQuote {
+    /// Must equal this contract's account id.
+    pub contract: String,
+    /// NEAR account that must pay the premium.
+    pub payer: String,
+    pub token_chain: String,
+    pub token_addr: String,
+    pub payout_chain: String,
+    pub payout_asset: String,
+    pub recipient: String,
+    pub cover_usdc: U128,
+    pub premium_bps: u16,
+    pub premium_usdc: U128,
+    /// Policy expiry.
+    pub expires_at_ms: u64,
+    /// Quote validity.
+    pub quote_expires_at_ms: u64,
+    /// Unique per quote; can be used once.
+    pub nonce: String,
 }

@@ -3,9 +3,9 @@
 
 use crate::*;
 
-/// v0.3 layout (Rail A quote proofs, before token watches).
+/// v0.4 layout (token watches, before API-signed cover-only sales).
 #[near(serializers = [borsh])]
-pub struct SafuV3 {
+pub struct SafuV4 {
     owner: AccountId,
     usdc: AccountId,
     api: AccountId,
@@ -34,18 +34,20 @@ pub struct SafuV3 {
     evm_chains: LookupMap<String, EvmChain>,
     oneclick_pubkey: [u8; 32],
     max_slippage_bps: u16,
+    watches: LookupMap<String, TokenWatch>,
+    active_tokens: IterableSet<String>,
+    last_heartbeat_ms: u64,
 }
 
 #[near]
 impl Safu {
-    /// v0.3 -> v0.4: adds token watches, active token list and watcher heartbeat.
-    /// Tokens covered before v0.4 have no watch; on testnet all of them were
-    /// already finalized, so the active list starts empty.
+    /// v0.4 -> v0.5: adds the API quote-signing key and used-nonce set.
     #[private]
     #[init(ignore_state)]
-    pub fn migrate_v4() -> Self {
-        let old: SafuV3 = env::state_read().expect("no v0.3 state");
-        emit("migrated", json!({ "to": "v0.4" }));
+    pub fn migrate_v5(api_pubkey: Option<String>) -> Self {
+        let old: SafuV4 = env::state_read().expect("no v0.4 state");
+        let api_pubkey = api_pubkey.map(|k| intents::parse_pubkey(&k).expect("bad api_pubkey"));
+        emit("migrated", json!({ "to": "v0.5" }));
         Self {
             owner: old.owner,
             usdc: old.usdc,
@@ -75,9 +77,11 @@ impl Safu {
             evm_chains: old.evm_chains,
             oneclick_pubkey: old.oneclick_pubkey,
             max_slippage_bps: old.max_slippage_bps,
-            watches: LookupMap::new(b"W"),
-            active_tokens: IterableSet::new(b"A"),
-            last_heartbeat_ms: 0,
+            watches: old.watches,
+            active_tokens: old.active_tokens,
+            last_heartbeat_ms: old.last_heartbeat_ms,
+            api_pubkey,
+            used_quote_nonces: LookupSet::new(b"N"),
         }
     }
 }
@@ -89,7 +93,7 @@ mod tests {
     use near_sdk::testing_env;
 
     #[test]
-    fn migrates_v3_state_preserving_pool_and_payouts() {
+    fn migrates_v4_state_preserving_pool_payouts_and_watches() {
         let mut b = VMContextBuilder::new();
         b.current_account_id("safu.test.near".parse().unwrap())
             .predecessor_account_id("safu.test.near".parse().unwrap());
@@ -109,7 +113,10 @@ mod tests {
         let mut relayers = IterableSet::new(b"r");
         relayers.insert(accounts(3));
         relayers.flush();
-        let old = SafuV3 {
+        let mut active = IterableSet::new(b"A");
+        active.insert("near:rugme.x".to_string());
+        active.flush();
+        let old = SafuV4 {
             owner: accounts(0), usdc: accounts(1), api: accounts(2),
             watchers: IterableSet::new(b"w"), relayers,
             dispute_window_ms: 60_000, waiting_period_ms: 0, deductible_bps: 2_000, max_token_exposure_bps: 1_000,
@@ -121,10 +128,13 @@ mod tests {
             evm_chains: LookupMap::new(b"c"),
             oneclick_pubkey: intents::parse_pubkey(intents::DEFAULT_ONECLICK_PUBKEY).unwrap(),
             max_slippage_bps: 250,
+            watches: LookupMap::new(b"W"),
+            active_tokens: active,
+            last_heartbeat_ms: 42,
         };
         env::state_write(&old);
 
-        let c = Safu::migrate_v4();
+        let c = Safu::migrate_v5(Some(intents::DEFAULT_ONECLICK_PUBKEY.into()));
         let s = c.pool_stats();
         assert_eq!(s.available_usdc.0, 17_600_000);
         assert_eq!(s.total_paid_out_usdc.0, 2_400_000);
@@ -134,6 +144,7 @@ mod tests {
         assert_eq!(cfg.relayers, vec![accounts(3)]);
         assert_eq!(cfg.oneclick_pubkey, intents::DEFAULT_ONECLICK_PUBKEY);
         assert_eq!(cfg.max_slippage_bps, 250);
-        assert!(c.list_watched(None, None).is_empty());
+        assert_eq!(c.last_heartbeat_ms(), 42);
+        assert_eq!(c.get_config().api_pubkey.as_deref(), Some(intents::DEFAULT_ONECLICK_PUBKEY));
     }
 }

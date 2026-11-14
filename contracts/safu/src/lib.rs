@@ -15,6 +15,7 @@ mod events;
 mod evm;
 mod intents;
 mod migrate;
+mod cover;
 mod types;
 
 #[cfg(test)]
@@ -25,7 +26,7 @@ pub use types::*;
 use events::emit;
 use near_sdk::json_types::U128;
 use near_sdk::serde_json::json;
-use near_sdk::store::{IterableSet, LookupMap};
+use near_sdk::store::{IterableSet, LookupMap, LookupSet};
 use near_sdk::{
     env, ext_contract, near, require, AccountId, Gas, NearToken, PanicOnDefault, Promise,
     PromiseOrValue,
@@ -110,6 +111,11 @@ pub struct Safu {
     active_tokens: IterableSet<String>,
     /// Last watcher liveness ping (ms).
     last_heartbeat_ms: u64,
+
+    /// ed25519 key the safu API signs cover-only quotes with.
+    api_pubkey: Option<[u8; 32]>,
+    /// Cover quote nonces already used (replay protection).
+    used_quote_nonces: LookupSet<String>,
 }
 
 #[near]
@@ -160,6 +166,8 @@ impl Safu {
             watches: LookupMap::new(b"W"),
             active_tokens: IterableSet::new(b"A"),
             last_heartbeat_ms: 0,
+            api_pubkey: None,
+            used_quote_nonces: LookupSet::new(b"N"),
         }
     }
 
@@ -220,6 +228,12 @@ impl Safu {
         self.oneclick_pubkey = intents::parse_pubkey(&public_key).expect("bad public key");
     }
 
+    /// Set the key the API signs cover-only quotes with (`ed25519:<base58>`).
+    pub fn set_api_pubkey(&mut self, public_key: String) {
+        self.assert_owner();
+        self.api_pubkey = Some(intents::parse_pubkey(&public_key).expect("bad public key"));
+    }
+
     pub fn set_max_slippage_bps(&mut self, bps: u16) {
         self.assert_owner();
         require!((bps as u128) < BPS, "bad slippage");
@@ -246,10 +260,20 @@ impl Safu {
         );
         let amount = amount.0;
         require!(amount > 0, "zero amount");
+        if msg.starts_with('{') {
+            // Cover-only purchase: premium paid in USDC with an API-signed quote.
+            // Any failed check panics, and NEP-141 refunds the full transfer.
+            let policy_id = self.buy_cover(&sender_id, amount, &msg);
+            emit(
+                "cover_bought",
+                json!({ "policy_id": policy_id, "payer": sender_id, "premium_usdc": U128(amount) }),
+            );
+            return PromiseOrValue::Value(U128(0));
+        }
         match msg.as_str() {
             "fund" => {}
             "premium" => self.premiums_earned += amount,
-            _ => env::panic_str("msg must be \"fund\" or \"premium\""),
+            _ => env::panic_str("msg must be \"fund\", \"premium\" or a buy_cover object"),
         }
         self.pool_available += amount;
         emit(
@@ -317,6 +341,26 @@ impl Safu {
         expires_at_ms: u64,
     ) -> u64 {
         require!(env::predecessor_account_id() == self.api, "api only");
+        self.create_policy(
+            token_chain, token_addr, payout_chain, payout_asset, recipient, cover_usdc,
+            premium_bps, insiders_root, buy_ref, expires_at_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_policy(
+        &mut self,
+        token_chain: String,
+        token_addr: String,
+        payout_chain: String,
+        payout_asset: String,
+        recipient: String,
+        cover_usdc: U128,
+        premium_bps: u16,
+        insiders_root: String,
+        buy_ref: String,
+        expires_at_ms: u64,
+    ) -> u64 {
         let now = env::block_timestamp_ms();
         let key = token_key(&token_chain, &token_addr);
         require!(!self.rugged.contains_key(&key), "token already rugged");
@@ -887,6 +931,9 @@ impl Safu {
             mpc_signer: self.mpc_signer.clone(),
             oneclick_pubkey: format!("ed25519:{}", near_sdk::bs58::encode(self.oneclick_pubkey).into_string()),
             max_slippage_bps: self.max_slippage_bps,
+            api_pubkey: self
+                .api_pubkey
+                .map(|k| format!("ed25519:{}", near_sdk::bs58::encode(k).into_string())),
         }
     }
 
