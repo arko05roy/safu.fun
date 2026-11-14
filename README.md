@@ -30,7 +30,7 @@ cd contracts/safu && cargo near build non-reproducible-wasm   # -> target/near/s
 2. API registers a policy per protected buy (`register_policy`) — premium 1–7%, per-token exposure ≤ 10% of pool.
 3. Allowlisted watcher calls `report_rug(token, rule, evidence)` → dispute window.
 4. Anyone calls `finalize_rug(report_id)` after the window → payouts queued at 80% of cover (pro-rata if pool is short).
-5. **Rail A** — relayer calls `request_payout_intents(payout_id, deposit_address)` with a 1Click deposit address → USDC sent → swapped to the user's asset on the user's chain → `mark_paid(payout_id, dest_tx_hash)`.
+5. **Rail A** — relayer calls `request_payout_intents(payout_id, quote, quote_signature)` with a live **1Click-signed quote**. The contract verifies the signature on-chain (`ed25519_verify` against the 1Click manager key) and that the quote pays this payout's amount/asset/recipient and refunds to the contract, then sends USDC to the deposit address in the quote → swapped to the user's asset on the user's chain → `mark_paid(payout_id, dest_tx_hash)`.
 6. **Rail B** — relayer calls `request_payout_signed(payout_id, max_fee_per_gas, max_priority_fee_per_gas)`. The **contract** builds the EIP-1559 `USDC.transfer(recipient, amount)` tx (chain id, token, recipient, amount and nonce are fixed by contract state; gas price is capped), asks `v1.signer` for an Ecdsa signature on path `pool-<chain>`, **ecrecovers it against the pool's derived address**, and stores the raw signed tx + its hash on the payout. Anyone can broadcast it; `mark_paid` only accepts that exact tx hash. Re-signing (gas bump) reuses the same nonce, so a payout can never land twice.
 
 ### Testnet deployment

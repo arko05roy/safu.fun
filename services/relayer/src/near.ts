@@ -73,12 +73,15 @@ export const safu = {
     });
   },
 
-  /** Rail A: contract sends the payout USDC to a 1Click deposit address. Returns NEAR tx hash. */
-  async requestPayoutIntents(payoutId: number, depositAddress: string): Promise<string> {
+  /**
+   * Rail A: contract verifies the 1Click-signed quote and sends the payout USDC
+   * to the deposit address inside it. Returns NEAR tx hash.
+   */
+  async requestPayoutIntents(payoutId: number, quote: Record<string, unknown>, quoteSignature: string): Promise<string> {
     const res = await relayer.callFunctionRaw({
       contractId: config.contract,
       methodName: "request_payout_intents",
-      args: { payout_id: payoutId, deposit_address: depositAddress },
+      args: { payout_id: payoutId, quote, quote_signature: quoteSignature },
       gas: 100n * TGAS,
     });
     return res.transaction.hash;

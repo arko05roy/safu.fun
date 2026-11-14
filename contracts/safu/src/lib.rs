@@ -13,6 +13,8 @@
 
 mod events;
 mod evm;
+mod intents;
+mod migrate;
 mod types;
 
 #[cfg(test)]
@@ -96,6 +98,11 @@ pub struct Safu {
     mpc_signer: AccountId,
     /// Rail B EVM chains, keyed by payout_chain id (e.g. "base-sepolia").
     evm_chains: LookupMap<String, EvmChain>,
+
+    /// 1Click manager ed25519 key; Rail A quotes must be signed by it.
+    oneclick_pubkey: [u8; 32],
+    /// Max slippage a Rail A quote may carry.
+    max_slippage_bps: u16,
 }
 
 #[near]
@@ -108,7 +115,12 @@ impl Safu {
         dispute_window_ms: u64,
         waiting_period_ms: u64,
         mpc_signer: AccountId,
+        oneclick_pubkey: Option<String>,
     ) -> Self {
+        let oneclick_pubkey = intents::parse_pubkey(
+            oneclick_pubkey.as_deref().unwrap_or(intents::DEFAULT_ONECLICK_PUBKEY),
+        )
+        .expect("bad oneclick_pubkey");
         Self {
             owner,
             usdc,
@@ -136,6 +148,8 @@ impl Safu {
             pending_payouts: IterableSet::new(b"q"),
             mpc_signer,
             evm_chains: LookupMap::new(b"c"),
+            oneclick_pubkey,
+            max_slippage_bps: 300,
         }
     }
 
@@ -188,6 +202,18 @@ impl Safu {
             require!(v > 0 && (v as u128) <= BPS, "bad exposure cap");
             self.max_token_exposure_bps = v;
         }
+    }
+
+    /// Rotate the 1Click quote-signing key (`ed25519:<base58>`).
+    pub fn set_oneclick_pubkey(&mut self, public_key: String) {
+        self.assert_owner();
+        self.oneclick_pubkey = intents::parse_pubkey(&public_key).expect("bad public key");
+    }
+
+    pub fn set_max_slippage_bps(&mut self, bps: u16) {
+        self.assert_owner();
+        require!((bps as u128) < BPS, "bad slippage");
+        self.max_slippage_bps = bps;
     }
 
     pub fn transfer_ownership(&mut self, new_owner: AccountId) {
@@ -480,22 +506,67 @@ impl Safu {
 
     // ───────────────────────── payouts: Rail A (NEAR Intents) ─────────────────────────
 
-    /// Relayer obtained a 1Click quote (origin = NEAR USDC, destination = the
-    /// payout asset on the user's chain, recipient = user) and passes its
-    /// deposit address. The contract registers storage for it and transfers
-    /// exactly the payout amount.
-    pub fn request_payout_intents(&mut self, payout_id: u64, deposit_address: AccountId) -> Promise {
+    /// Relayer passes a live 1Click quote: `quote` is the exact field object
+    /// 1Click signed (request fields + quote fields + timestamp, as built by
+    /// the official SDK) and `quote_signature` its `ed25519:` signature.
+    ///
+    /// The contract verifies the signature against the 1Click manager key and
+    /// that the quote swaps exactly this payout's USDC into the policy's
+    /// `payout_asset` for the policy's `recipient`, refunding to this contract.
+    /// USDC goes to the deposit address *from the signed quote* — the relayer
+    /// cannot redirect it.
+    pub fn request_payout_intents(
+        &mut self,
+        payout_id: u64,
+        quote: near_sdk::serde_json::Map<String, near_sdk::serde_json::Value>,
+        quote_signature: String,
+    ) -> Promise {
         self.assert_relayer();
+        {
+            let p = self.payouts.get(&payout_id).expect("no such payout");
+            require!(p.status == PayoutStatus::Queued, "payout not queued");
+            require!(p.evm_nonce.is_none(), "payout is bound to Rail B");
+        }
+        require!(
+            intents::verify_quote_signature(&quote, &quote_signature, &self.oneclick_pubkey),
+            "invalid 1Click quote signature"
+        );
+        let me = env::current_account_id();
+        let origin = format!("nep141:{}", self.usdc);
+        let max_slippage = self.max_slippage_bps as u64;
+        let deposit_address: AccountId = intents::str_field(&quote, "depositAddress")
+            .and_then(|a| a.parse().ok())
+            .unwrap_or_else(|| env::panic_str("quote has no valid NEAR depositAddress"));
+
         let p = self.payouts.get_mut(&payout_id).expect("no such payout");
-        require!(p.status == PayoutStatus::Queued, "payout not queued");
-        require!(p.evm_nonce.is_none(), "payout is bound to Rail B");
+
+        let f = |k: &str| intents::str_field(&quote, k);
+        require!(quote.get("dry").and_then(|v| v.as_bool()) == Some(false), "quote is dry");
+        require!(f("swapType") == Some("EXACT_INPUT"), "quote swapType must be EXACT_INPUT");
+        require!(f("depositType") == Some("ORIGIN_CHAIN"), "quote depositType must be ORIGIN_CHAIN");
+        require!(f("originAsset") == Some(origin.as_str()), "quote originAsset is not pool USDC");
+        require!(f("amount") == Some(p.amount_usdc.0.to_string().as_str()), "quote amount != payout amount");
+        require!(f("destinationAsset") == Some(p.payout_asset.as_str()), "quote destinationAsset != policy payout_asset");
+        require!(f("recipient") == Some(p.recipient.as_str()), "quote recipient != policy recipient");
+        require!(f("recipientType") == Some("DESTINATION_CHAIN"), "quote recipientType must be DESTINATION_CHAIN");
+        require!(f("refundTo") == Some(me.as_str()), "quote must refund to this contract");
+        require!(f("refundType") == Some("ORIGIN_CHAIN"), "quote refundType must be ORIGIN_CHAIN");
+        require!(
+            quote.get("slippageTolerance").and_then(|v| v.as_u64()).is_some_and(|s| s <= max_slippage),
+            "quote slippage above max"
+        );
+        for k in ["depositMemo", "customRecipientMsg", "virtualChainRecipient", "virtualChainRefundRecipient"] {
+            require!(!quote.contains_key(k), "unsupported quote field");
+        }
+        let deadline = f("deadline").and_then(intents::parse_iso_ms).expect("quote has no deadline");
+        require!(deadline > env::block_timestamp_ms(), "quote expired");
         p.status = PayoutStatus::Processing;
         p.rail = Some(PayoutRail::Intents);
         p.deposit_address = Some(deposit_address.clone());
         let amount = p.amount_usdc;
         emit(
             "payout_processing",
-            json!({ "payout_id": payout_id, "rail": "Intents", "deposit_address": deposit_address }),
+            json!({ "payout_id": payout_id, "rail": "Intents", "deposit_address": deposit_address, "quote_signature": quote_signature }),
         );
 
         ext_ft::ext(self.usdc.clone())
@@ -758,6 +829,8 @@ impl Safu {
             deductible_bps: self.deductible_bps,
             max_token_exposure_bps: self.max_token_exposure_bps,
             mpc_signer: self.mpc_signer.clone(),
+            oneclick_pubkey: format!("ed25519:{}", near_sdk::bs58::encode(self.oneclick_pubkey).into_string()),
+            max_slippage_bps: self.max_slippage_bps,
         }
     }
 

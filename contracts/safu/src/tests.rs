@@ -34,7 +34,7 @@ fn ctx(predecessor: AccountId, now_ms: u64) {
 
 fn setup(pool: u128) -> Safu {
     ctx(owner(), 1_000);
-    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 0, mpc());
+    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 0, mpc(), None);
     c.add_watcher(watcher());
     c.add_relayer(relayer());
     if pool > 0 {
@@ -189,7 +189,7 @@ fn upheld_dispute_finalizes_immediately() {
 #[test]
 fn waiting_period_excludes_fresh_policies() {
     ctx(owner(), 1_000);
-    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 600_000, mpc()); // 10 min wait
+    let mut c = Safu::new(owner(), usdc(), api(), 60_000, 600_000, mpc(), None); // 10 min wait
     c.add_watcher(watcher());
     ctx(usdc(), 1_000);
     let _ = c.ft_on_transfer(owner(), U128(1_000 * USDC), "fund".into());
@@ -235,7 +235,7 @@ fn only_relayer_requests_payout() {
     let rid = report(&mut c, 3_000);
     ctx(accounts(4), 70_000);
     let ids = c.finalize_rug(rid);
-    let _ = c.request_payout_intents(ids[0], "abc.near".parse().unwrap());
+    let _ = c.request_payout_intents(ids[0], Default::default(), "ed25519:x".into());
 }
 
 // ───────── Rail B ─────────
@@ -391,5 +391,114 @@ fn rail_a_blocked_after_rail_b_nonce() {
     ctx_with_result("safu.test.near".parse().unwrap(), 80_001, near_sdk::PromiseResult::Failed);
     c.on_payout_signed(pid, 7, U128(3_000_000_000), U128(1_000_000));
     ctx(relayer(), 81_000);
-    let _ = c.request_payout_intents(pid, "abc.near".parse().unwrap());
+    let _ = c.request_payout_intents(pid, Default::default(), "ed25519:x".into());
+}
+
+// ───────── Rail A: signed 1Click quotes ─────────
+// Fixture: a live mainnet 1Click quote (testdata/oneclick_quote.json) for
+// 1.6 USDC (NEAR) -> USDC on Base, recipient 0x7A69…8d0d, refundTo = the
+// all-zero implicit account (so that is "this contract" in these tests).
+const QUOTE: &str = include_str!("testdata/oneclick_quote.json");
+const ZERO_ACCOUNT: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+const NEAR_USDC: &str = "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
+const QUOTE_NOW_MS: u64 = 1_794_638_617_875; // quote timestamp 2026-11-14T06:43:37.875Z
+
+fn quote() -> (near_sdk::serde_json::Map<String, near_sdk::serde_json::Value>, String) {
+    let v: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(QUOTE).unwrap();
+    (v["signed_fields"].as_object().unwrap().clone(), v["signature"].as_str().unwrap().into())
+}
+
+fn ctx_at(contract: &str, predecessor: AccountId, now_ms: u64) {
+    let mut b = VMContextBuilder::new();
+    b.current_account_id(contract.parse().unwrap())
+        .predecessor_account_id(predecessor)
+        .block_timestamp(now_ms * MS);
+    testing_env!(b.build());
+}
+
+/// Rugged policy whose payout (1.6 USDC) matches the fixture quote.
+fn rail_a_setup(recipient: &str) -> (Safu, u64) {
+    let usdc: AccountId = NEAR_USDC.parse().unwrap();
+    ctx_at(ZERO_ACCOUNT, owner(), QUOTE_NOW_MS);
+    let mut c = Safu::new(owner(), usdc.clone(), api(), 0, 0, mpc(), None);
+    c.add_watcher(watcher());
+    c.add_relayer(relayer());
+    ctx_at(ZERO_ACCOUNT, usdc, QUOTE_NOW_MS);
+    let _ = c.ft_on_transfer(owner(), U128(100 * USDC), "fund".into());
+    ctx_at(ZERO_ACCOUNT, api(), QUOTE_NOW_MS);
+    c.register_policy(
+        "base".into(), "0x00000000000000000000000000000000000e2e03".into(),
+        "base".into(), "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near".into(),
+        recipient.into(), U128(2 * USDC), 500, "00".into(), "ref".into(), QUOTE_NOW_MS + 86_400_000,
+    );
+    ctx_at(ZERO_ACCOUNT, watcher(), QUOTE_NOW_MS);
+    let rid = c.report_rug("base".into(), "0x00000000000000000000000000000000000e2e03".into(), "R1".into(), vec!["x".into()]);
+    ctx_at(ZERO_ACCOUNT, accounts(4), QUOTE_NOW_MS);
+    let pid = c.finalize_rug(rid)[0];
+    assert_eq!(c.get_payout(pid).unwrap().amount_usdc.0, 1_600_000);
+    (c, pid)
+}
+
+#[test]
+fn rail_a_accepts_signed_quote_and_uses_its_deposit_address() {
+    let (mut c, pid) = rail_a_setup("0x7A69e5aBa08eAC068A45ddf9E1818c7d89518d0d");
+    let (q, sig) = quote();
+    ctx_at(ZERO_ACCOUNT, relayer(), QUOTE_NOW_MS + 60_000);
+    let _ = c.request_payout_intents(pid, q, sig);
+    let p = c.get_payout(pid).unwrap();
+    assert_eq!(p.status, PayoutStatus::Processing);
+    assert_eq!(
+        p.deposit_address.unwrap().as_str(),
+        "2cfd7e6cec26f47cc8ff7ad9d6df439a66dc0d942928421c5d4d95073d7c121f"
+    );
+}
+
+#[test]
+#[should_panic(expected = "invalid 1Click quote signature")]
+fn rail_a_rejects_relayer_swapped_deposit_address() {
+    let (mut c, pid) = rail_a_setup("0x7A69e5aBa08eAC068A45ddf9E1818c7d89518d0d");
+    let (mut q, sig) = quote();
+    q.insert("depositAddress".into(), "relayer-owned.near".into());
+    ctx_at(ZERO_ACCOUNT, relayer(), QUOTE_NOW_MS + 60_000);
+    let _ = c.request_payout_intents(pid, q, sig);
+}
+
+#[test]
+#[should_panic(expected = "quote recipient != policy recipient")]
+fn rail_a_rejects_validly_signed_quote_for_someone_else() {
+    // genuine 1Click quote, but it pays a different recipient than this policy
+    let (mut c, pid) = rail_a_setup("0x000000000000000000000000000000000000beef");
+    let (q, sig) = quote();
+    ctx_at(ZERO_ACCOUNT, relayer(), QUOTE_NOW_MS + 60_000);
+    let _ = c.request_payout_intents(pid, q, sig);
+}
+
+#[test]
+#[should_panic(expected = "quote must refund to this contract")]
+fn rail_a_rejects_quote_refunding_elsewhere() {
+    let (mut c, pid) = rail_a_setup("0x7A69e5aBa08eAC068A45ddf9E1818c7d89518d0d");
+    let (q, sig) = quote();
+    // same state, but executing as a different contract account
+    ctx_at("safu.test.near", relayer(), QUOTE_NOW_MS + 60_000);
+    let _ = c.request_payout_intents(pid, q, sig);
+}
+
+#[test]
+#[should_panic(expected = "quote expired")]
+fn rail_a_rejects_expired_quote() {
+    let (mut c, pid) = rail_a_setup("0x7A69e5aBa08eAC068A45ddf9E1818c7d89518d0d");
+    let (q, sig) = quote();
+    ctx_at(ZERO_ACCOUNT, relayer(), 1_794_899_617_000); // == quote deadline
+    let _ = c.request_payout_intents(pid, q, sig);
+}
+
+#[test]
+#[should_panic(expected = "invalid 1Click quote signature")]
+fn rail_a_key_rotation_invalidates_old_key() {
+    let (mut c, pid) = rail_a_setup("0x7A69e5aBa08eAC068A45ddf9E1818c7d89518d0d");
+    ctx_at(ZERO_ACCOUNT, owner(), QUOTE_NOW_MS);
+    c.set_oneclick_pubkey("ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".into());
+    let (q, sig) = quote();
+    ctx_at(ZERO_ACCOUNT, relayer(), QUOTE_NOW_MS + 60_000);
+    let _ = c.request_payout_intents(pid, q, sig);
 }

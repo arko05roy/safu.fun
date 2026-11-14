@@ -170,6 +170,8 @@ pub struct Config {
     pub deductible_bps: u16,
     pub max_token_exposure_bps: u16,
     pub mpc_signer: AccountId,
+    pub oneclick_pubkey: String,
+    pub max_slippage_bps: u16,
 }
 
 #[near(serializers = [json])]

@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "0.1.26",
     "dotenv": "^18.0.10",
     "near-api-js": "7.5.3",
     "viem": "2.57.19"

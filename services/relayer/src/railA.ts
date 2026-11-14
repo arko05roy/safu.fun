@@ -2,8 +2,9 @@
  * Rail A — NEAR Intents payouts to any chain/asset 1Click supports.
  *
  * Queued: get a live 1Click quote (origin = pool USDC on NEAR, destination =
- *   the asset the buyer chose, recipient = the buyer) -> contract transfers the
- *   exact payout amount to the quote's deposit address.
+ *   the asset the buyer chose, recipient = the buyer) and hand the contract the
+ *   1Click-signed quote. The contract verifies the signature + every field
+ *   against the payout, then transfers to the deposit address in the quote.
  * Sent:   poll 1Click status by deposit address; on SUCCESS record the
  *   destination-chain tx hash with `mark_paid`.
  *
@@ -12,6 +13,7 @@
 import { config } from "./config.js";
 import { safu, type Payout } from "./near.js";
 import { oneClick } from "./oneclick.js";
+import { buildQuoteProof } from "./quoteProof.js";
 import { log } from "./log.js";
 
 let poolUsdcAsset: string | undefined;
@@ -41,7 +43,9 @@ export async function handleRailA(p: Payout): Promise<void> {
     if (!dep) throw new Error(`payout ${p.id}: 1Click quote has no depositAddress`);
     log(p.id, `1Click quote ${q.correlationId}: ${p.amount_usdc} USDC -> ~${q.quote.amountOutFormatted} ${p.payout_asset} to ${p.recipient}`);
 
-    const nearTx = await safu.requestPayoutIntents(p.id, dep);
+    // The contract re-verifies this signature and takes the deposit address from it.
+    const proof = buildQuoteProof(q);
+    const nearTx = await safu.requestPayoutIntents(p.id, proof.fields, proof.signature);
     log(p.id, `USDC sent to 1Click deposit ${dep} (NEAR tx ${nearTx})`);
     await oneClick
       .submitDeposit(nearTx, dep, config.contract)

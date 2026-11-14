@@ -26,18 +26,8 @@ export interface QuoteRequest {
   appFees?: { recipient: string; fee: number }[];
 }
 
-export interface QuoteResponse {
-  quote: {
-    depositAddress?: string;
-    amountIn: string;
-    amountOut: string;
-    minAmountOut: string;
-    amountOutFormatted: string;
-    deadline?: string;
-    timeEstimate: number;
-  };
-  correlationId: string;
-}
+export type { OneClickQuoteResponse as QuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
+import type { OneClickQuoteResponse as QuoteResponse } from "@defuse-protocol/one-click-sdk-typescript";
 
 export interface StatusResponse {
   status: SwapStatus;
